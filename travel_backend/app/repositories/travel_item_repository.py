@@ -26,9 +26,20 @@ class TravelItemRepository:
         )
         return await cursor.to_list(length=limit)
 
-    async def find_city_suggestions(self, prefix_filter: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    async def find_city_suggestions(
+        self,
+        prefix_filter: dict[str, Any],
+        limit: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         pipeline: list[dict[str, Any]] = [
-            {"$match": {"is_active": True, "city_normalized": prefix_filter}},
+            {
+                "$match": {
+                    "is_active": True,
+                    **(filters or {}),
+                    "city_normalized": prefix_filter,
+                }
+            },
             {"$sort": {"city_normalized": 1, "country_normalized": 1, "city": 1, "country": 1}},
             {
                 "$group": {
@@ -47,9 +58,20 @@ class TravelItemRepository:
         cursor = self.collection.aggregate(pipeline)
         return await cursor.to_list(length=limit)
 
-    async def find_country_suggestions(self, prefix_filter: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    async def find_country_suggestions(
+        self,
+        prefix_filter: dict[str, Any],
+        limit: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         pipeline: list[dict[str, Any]] = [
-            {"$match": {"is_active": True, "country_normalized": prefix_filter}},
+            {
+                "$match": {
+                    "is_active": True,
+                    **(filters or {}),
+                    "country_normalized": prefix_filter,
+                }
+            },
             {"$sort": {"country_normalized": 1, "country": 1}},
             {
                 "$group": {
@@ -64,9 +86,68 @@ class TravelItemRepository:
         cursor = self.collection.aggregate(pipeline)
         return await cursor.to_list(length=limit)
 
-    async def find_item_suggestions(self, prefix_filter: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    async def find_item_suggestions(
+        self,
+        prefix_filter: dict[str, Any],
+        limit: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         pipeline: list[dict[str, Any]] = [
-            {"$match": {"is_active": True, "name_normalized": prefix_filter}},
+            {
+                "$match": {
+                    "is_active": True,
+                    **(filters or {}),
+                    "name_normalized": prefix_filter,
+                }
+            },
+            {
+                "$sort": {
+                    "name_normalized": 1,
+                    "city_normalized": 1,
+                    "country_normalized": 1,
+                    "type": 1,
+                    "rating": -1,
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "name_normalized": "$name_normalized",
+                        "city_normalized": "$city_normalized",
+                        "country_normalized": "$country_normalized",
+                        "type": "$type",
+                    },
+                    "name": {"$first": "$name"},
+                    "type": {"$first": "$type"},
+                    "city": {"$first": "$city"},
+                    "country": {"$first": "$country"},
+                }
+            },
+            {"$sort": {"name": 1, "city": 1, "country": 1, "type": 1}},
+            {"$limit": limit},
+            {"$project": {"_id": 0, "name": 1, "type": 1, "city": 1, "country": 1}},
+        ]
+        cursor = self.collection.aggregate(pipeline)
+        return await cursor.to_list(length=limit)
+
+    async def find_filtered_item_suggestions(
+        self,
+        prefix_filter: dict[str, Any],
+        limit: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    "is_active": True,
+                    **filters,
+                    "$or": [
+                        {"name_normalized": prefix_filter},
+                        {"city_normalized": prefix_filter},
+                        {"country_normalized": prefix_filter},
+                    ],
+                }
+            },
             {
                 "$sort": {
                     "name_normalized": 1,

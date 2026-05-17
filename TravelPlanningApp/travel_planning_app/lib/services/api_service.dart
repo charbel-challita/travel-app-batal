@@ -77,9 +77,7 @@ class ApiService {
     bool includeImages = false,
     int limit = 20,
   }) async {
-    final queryParameters = <String, String>{
-      'limit': limit.toString(),
-    };
+    final queryParameters = <String, String>{'limit': limit.toString()};
 
     void addString(String key, String? value) {
       if (value != null) {
@@ -140,19 +138,30 @@ class ApiService {
       );
     }
 
-    return items.map((item) {
-      if (item is! Map) {
-        throw Exception(
-          'Invalid travel items response: item is not a JSON object.',
-        );
-      }
+    return items
+        .map((item) {
+          if (item is! Map) {
+            throw Exception(
+              'Invalid travel items response: item is not a JSON object.',
+            );
+          }
 
-      return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
-    }).toList(growable: false);
+          return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
+        })
+        .toList(growable: false);
   }
 
   Future<List<TravelItemSuggestion>> getTravelItemSuggestions({
     required String query,
+    String? type,
+    String? category,
+    String? budgetLevel,
+    List<String>? interests,
+    bool? familyFriendly,
+    bool? culture,
+    bool? romantic,
+    bool? adventure,
+    bool? nightlife,
     int limit = 5,
   }) async {
     final trimmedQuery = query.trim();
@@ -161,12 +170,36 @@ class ApiService {
     }
 
     final safeLimit = limit < 1 ? 5 : limit.clamp(1, 5);
-    final uri = Uri.parse('$baseUrl/travel-items/suggestions').replace(
-      queryParameters: <String, String>{
-        'q': trimmedQuery,
-        'limit': safeLimit.toString(),
-      },
-    );
+    final queryParameters = <String, String>{
+      'q': trimmedQuery,
+      'limit': safeLimit.toString(),
+    };
+
+    void addString(String key, String? value) {
+      if (value != null) {
+        queryParameters[key] = value;
+      }
+    }
+
+    void addBool(String key, bool? value) {
+      if (value != null) {
+        queryParameters[key] = value.toString();
+      }
+    }
+
+    addString('type', type);
+    addString('category', category);
+    addString('budget_level', budgetLevel);
+    addString('interests', interests?.join(','));
+    addBool('family_friendly', familyFriendly);
+    addBool('culture', culture);
+    addBool('romantic', romantic);
+    addBool('adventure', adventure);
+    addBool('nightlife', nightlife);
+
+    final uri = Uri.parse(
+      '$baseUrl/travel-items/suggestions',
+    ).replace(queryParameters: queryParameters);
 
     final response = await _client.get(uri);
 
@@ -199,21 +232,32 @@ class ApiService {
       );
     }
 
-    return suggestions.map((suggestion) {
-      if (suggestion is! Map) {
-        throw Exception(
-          'Invalid travel item suggestions response: suggestion is not a JSON object.',
-        );
-      }
+    return suggestions
+        .map((suggestion) {
+          if (suggestion is! Map) {
+            throw Exception(
+              'Invalid travel item suggestions response: suggestion is not a JSON object.',
+            );
+          }
 
-      return TravelItemSuggestion.fromJson(
-        Map<String, dynamic>.from(suggestion),
-      );
-    }).toList(growable: false);
+          return TravelItemSuggestion.fromJson(
+            Map<String, dynamic>.from(suggestion),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<List<PlaceModel>> searchTravelItems({
     required String query,
+    String? type,
+    String? category,
+    String? budgetLevel,
+    List<String>? interests,
+    bool? familyFriendly,
+    bool? culture,
+    bool? romantic,
+    bool? adventure,
+    bool? nightlife,
     bool includeImages = false,
     int limit = 20,
   }) async {
@@ -227,6 +271,28 @@ class ApiService {
       'q': trimmedQuery,
       'limit': safeLimit.toString(),
     };
+
+    void addString(String key, String? value) {
+      if (value != null) {
+        queryParameters[key] = value;
+      }
+    }
+
+    void addBool(String key, bool? value) {
+      if (value != null) {
+        queryParameters[key] = value.toString();
+      }
+    }
+
+    addString('type', type);
+    addString('category', category);
+    addString('budget_level', budgetLevel);
+    addString('interests', interests?.join(','));
+    addBool('family_friendly', familyFriendly);
+    addBool('culture', culture);
+    addBool('romantic', romantic);
+    addBool('adventure', adventure);
+    addBool('nightlife', nightlife);
 
     if (includeImages) {
       queryParameters['include_images'] = 'true';
@@ -267,14 +333,16 @@ class ApiService {
       );
     }
 
-    return items.map((item) {
-      if (item is! Map) {
-        throw Exception(
-          'Invalid travel item search response: item is not a JSON object.',
-        );
-      }
+    return items
+        .map((item) {
+          if (item is! Map) {
+            throw Exception(
+              'Invalid travel item search response: item is not a JSON object.',
+            );
+          }
 
-      return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
-    }).toList(growable: false);
+          return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
+        })
+        .toList(growable: false);
   }
 }

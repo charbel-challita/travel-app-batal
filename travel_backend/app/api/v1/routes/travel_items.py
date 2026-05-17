@@ -57,13 +57,44 @@ async def list_travel_items(
     return TravelItemsListResponse(items=items, count=len(items))
 
 
-@router.get("/suggestions", response_model=TravelItemSuggestionsResponse, response_model_exclude_none=True)
+@router.get(
+    "/suggestions",
+    response_model=TravelItemSuggestionsResponse,
+    response_model_exclude_none=True,
+)
 async def suggest_travel_items(
     q: str = Query(..., min_length=1),
     limit: int = Query(default=5, ge=1),
+    type: str | None = Query(
+        default=None,
+        pattern="^(activity|hotel|restaurant|nightlife)$",
+    ),
+    category: str | None = None,
+    budget_level: str | None = Query(
+        default=None,
+        pattern="^(low|mid|luxury)$",
+    ),
+    interests: str | None = None,
+    family_friendly: bool | None = None,
+    culture: bool | None = None,
+    romantic: bool | None = None,
+    adventure: bool | None = None,
+    nightlife: bool | None = None,
     service: TravelItemService = Depends(get_travel_item_service),
 ) -> TravelItemSuggestionsResponse:
-    return await service.suggest_travel_items(q=q, limit=limit)
+    return await service.suggest_travel_items(
+        q=q,
+        limit=limit,
+        type=type,
+        category=category,
+        budget_level=budget_level,
+        interests=interests,
+        family_friendly=family_friendly,
+        culture=culture,
+        romantic=romantic,
+        adventure=adventure,
+        nightlife=nightlife,
+    )
 
 
 @router.get("/search", response_model=TravelItemsSearchResponse)
@@ -71,11 +102,39 @@ async def search_travel_items(
     q: str = Query(..., min_length=1),
     include_images: bool = False,
     limit: int = Query(default=20, ge=1, le=100),
+    type: str | None = Query(
+        default=None,
+        pattern="^(activity|hotel|restaurant|nightlife)$",
+    ),
+    category: str | None = None,
+    budget_level: str | None = Query(
+        default=None,
+        pattern="^(low|mid|luxury)$",
+    ),
+    interests: str | None = None,
+    family_friendly: bool | None = None,
+    culture: bool | None = None,
+    romantic: bool | None = None,
+    adventure: bool | None = None,
+    nightlife: bool | None = None,
     service: TravelItemService = Depends(get_travel_item_service),
 ) -> TravelItemsSearchResponse:
     if not q.strip():
         raise HTTPException(status_code=422, detail="q must contain search text")
-    return await service.search_travel_items(q=q, include_images=include_images, limit=limit)
+    return await service.search_travel_items(
+        q=q,
+        include_images=include_images,
+        limit=limit,
+        type=type,
+        category=category,
+        budget_level=budget_level,
+        interests=interests,
+        family_friendly=family_friendly,
+        culture=culture,
+        romantic=romantic,
+        adventure=adventure,
+        nightlife=nightlife,
+    )
 
 
 @router.get("/featured", response_model=FeaturedTravelItemsResponse)

@@ -7,6 +7,38 @@ import '../services/api_service.dart';
 import '../services/sample_data.dart';
 import 'destination_details_screen.dart';
 
+class _TypeFilterOption {
+  final String label;
+  final String? type;
+  final IconData icon;
+
+  const _TypeFilterOption({
+    required this.label,
+    required this.type,
+    required this.icon,
+  });
+}
+
+const List<_TypeFilterOption> _typeFilterOptions = [
+  _TypeFilterOption(label: 'All', type: null, icon: Icons.public),
+  _TypeFilterOption(
+    label: 'Activities',
+    type: 'activity',
+    icon: Icons.map_outlined,
+  ),
+  _TypeFilterOption(label: 'Hotels', type: 'hotel', icon: Icons.hotel_outlined),
+  _TypeFilterOption(
+    label: 'Food / Restaurants',
+    type: 'restaurant',
+    icon: Icons.restaurant_outlined,
+  ),
+  _TypeFilterOption(
+    label: 'Nightlife',
+    type: 'nightlife',
+    icon: Icons.nightlife_outlined,
+  ),
+];
+
 class ExploreScreen extends StatefulWidget {
   final String selectedMode;
 
@@ -18,6 +50,7 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   String selectedType = 'Activities';
+  String? selectedTypeFilter;
   bool isLoadingPlaces = false;
   String? placesError;
   List<PlaceModel> normalPlaces = SampleData.places;
@@ -25,6 +58,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController searchController = TextEditingController();
   String searchText = '';
+  int _placesRequestId = 0;
   Timer? _suggestionsDebounce;
   int _suggestionsRequestId = 0;
   bool isLoadingSuggestions = false;
@@ -60,6 +94,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _loadNormalPlaces() async {
+    final requestId = ++_placesRequestId;
+
     setState(() {
       isLoadingPlaces = true;
       placesError = null;
@@ -67,21 +103,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     try {
       final places = await _apiService.getTravelItems(
+        type: selectedTypeFilter,
         includeImages: true,
         limit: 20,
       );
 
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
         normalPlaces = places;
         isLoadingPlaces = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = SampleData.places;
+        normalPlaces = _samplePlacesForSelectedFilter();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
@@ -89,6 +126,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _searchNormalPlaces(String query) async {
+    final requestId = ++_placesRequestId;
     final trimmedQuery = query.trim();
     if (trimmedQuery.isEmpty) {
       await _loadNormalPlaces();
@@ -103,21 +141,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
     try {
       final places = await _apiService.searchTravelItems(
         query: trimmedQuery,
+        type: selectedTypeFilter,
         includeImages: true,
         limit: 20,
       );
 
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
         normalPlaces = places;
         isLoadingPlaces = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = SampleData.places;
+        normalPlaces = _samplePlacesForSelectedFilter();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
@@ -125,6 +164,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _loadPlacesForSuggestion(TravelItemSuggestion suggestion) async {
+    final requestId = ++_placesRequestId;
     _suggestionsDebounce?.cancel();
     _suggestionsRequestId++;
 
@@ -148,38 +188,61 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (suggestion.kind == 'city') {
         places = await _apiService.getTravelItems(
           city: suggestion.value,
+          type: selectedTypeFilter,
           includeImages: true,
           limit: 20,
         );
       } else if (suggestion.kind == 'country') {
         places = await _apiService.getTravelItems(
           country: suggestion.value,
+          type: selectedTypeFilter,
           includeImages: true,
           limit: 20,
         );
       } else {
         places = await _apiService.searchTravelItems(
           query: suggestion.value,
+          type: selectedTypeFilter,
           includeImages: true,
           limit: 20,
         );
       }
 
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
         normalPlaces = places;
         isLoadingPlaces = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = SampleData.places;
+        normalPlaces = _samplePlacesForSelectedFilter();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
     }
+  }
+
+  void _handleTypeSelected(String type) {
+    setState(() {
+      selectedType = type;
+    });
+
+    if (!_isNormalMode(widget.selectedMode)) {
+      return;
+    }
+
+    _suggestionsDebounce?.cancel();
+    _suggestionsRequestId++;
+    searchController.clear();
+    setState(() {
+      searchText = '';
+      searchSuggestions = [];
+      isLoadingSuggestions = false;
+    });
+    _loadNormalPlaces();
   }
 
   void _handleSearchChanged(String value) {
@@ -214,6 +277,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     try {
       final suggestions = await _apiService.getTravelItemSuggestions(
         query: query,
+        type: selectedTypeFilter,
         limit: 5,
       );
 
@@ -269,8 +333,118 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _searchNormalPlaces(value);
   }
 
+  void _showTypeFilterSheet() {
+    if (!_isNormalMode(widget.selectedMode)) {
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Filter places',
+                        style: TextStyle(
+                          color: Color(0xFF111827),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ..._typeFilterOptions.map((option) {
+                  final isSelected = selectedTypeFilter == option.type;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(option.icon, color: const Color(0xFF2563EB)),
+                    title: Text(
+                      option.label,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(
+                            Icons.check_circle,
+                            color: Color(0xFF2563EB),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _applyTypeFilter(option.type);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _applyTypeFilter(String? type) {
+    _suggestionsDebounce?.cancel();
+    _suggestionsRequestId++;
+
+    setState(() {
+      selectedTypeFilter = type;
+      searchSuggestions = [];
+      isLoadingSuggestions = false;
+    });
+
+    final query = searchController.text.trim();
+    if (query.isEmpty) {
+      _loadNormalPlaces();
+    } else {
+      _searchNormalPlaces(query);
+    }
+  }
+
+  void _clearTypeFilter() {
+    _applyTypeFilter(null);
+  }
+
   bool _isNormalMode(String mode) {
     return mode != 'Luxury' && mode != 'Night';
+  }
+
+  List<PlaceModel> _samplePlacesForSelectedFilter() {
+    final type = selectedTypeFilter;
+    if (type == null) {
+      return SampleData.places;
+    }
+    return SampleData.places.where((place) => place.type == type).toList();
+  }
+
+  String get _activeFilterLabel {
+    return _typeFilterOptions
+        .firstWhere(
+          (option) => option.type == selectedTypeFilter,
+          orElse: () => _typeFilterOptions.first,
+        )
+        .label;
   }
 
   @override
@@ -387,12 +561,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       fontSize: 13,
                     ),
                     prefixIcon: Icon(Icons.search, color: accentColor),
-                    suffixIcon: searchText.isEmpty
-                        ? Icon(Icons.tune, color: accentColor)
-                        : IconButton(
-                            onPressed: _clearSearch,
-                            icon: Icon(Icons.close, color: accentColor),
+                    suffixIcon: !_isNormalMode(widget.selectedMode)
+                        ? searchText.isEmpty
+                              ? Icon(Icons.tune, color: accentColor)
+                              : IconButton(
+                                  onPressed: _clearSearch,
+                                  icon: Icon(Icons.close, color: accentColor),
+                                )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Filters',
+                                onPressed: _showTypeFilterSheet,
+                                icon: Icon(
+                                  Icons.tune,
+                                  color: selectedTypeFilter == null
+                                      ? accentColor
+                                      : const Color(0xFF1D4ED8),
+                                ),
+                              ),
+                              if (searchText.isNotEmpty)
+                                IconButton(
+                                  tooltip: 'Clear search',
+                                  onPressed: _clearSearch,
+                                  icon: Icon(Icons.close, color: accentColor),
+                                ),
+                            ],
                           ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
@@ -403,6 +603,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                 ),
               ),
+
+              if (!isLuxury && !isNight)
+                _ActiveFilterChip(
+                  label: _activeFilterLabel,
+                  isVisible: selectedTypeFilter != null,
+                  onClear: _clearTypeFilter,
+                ),
 
               if (!isLuxury && !isNight)
                 _SearchSuggestionsDropdown(
@@ -509,9 +716,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 14),
 
                 ..._getNightCards(),
-              ] else ...[
+              ] else if (isLuxury) ...[
                 Text(
-                  isLuxury ? 'Browse premium services' : 'Browse by type',
+                  'Browse premium services',
                   style: TextStyle(
                     fontSize: 19,
                     fontWeight: FontWeight.w900,
@@ -528,11 +735,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       final isSelected = selectedType == type;
 
                       return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            selectedType = type;
-                          });
-                        },
+                        onTap: () => _handleTypeSelected(type),
                         child: Container(
                           margin: const EdgeInsets.only(right: 10),
                           padding: const EdgeInsets.symmetric(
@@ -552,9 +755,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 _getTypeIcon(type),
                                 size: 16,
                                 color: isSelected
-                                    ? isLuxury
-                                          ? const Color(0xFF111827)
-                                          : Colors.white
+                                    ? const Color(0xFF111827)
                                     : secondaryTextColor,
                               ),
                               const SizedBox(width: 7),
@@ -562,9 +763,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 type,
                                 style: TextStyle(
                                   color: isSelected
-                                      ? isLuxury
-                                            ? const Color(0xFF111827)
-                                            : Colors.white
+                                      ? const Color(0xFF111827)
                                       : secondaryTextColor,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
@@ -581,13 +780,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 24),
 
                 Text(
-                  isLuxury && selectedType == 'Activities'
+                  selectedType == 'Activities'
                       ? 'Exclusive activities'
-                      : isLuxury && selectedType == 'Hotels'
+                      : selectedType == 'Hotels'
                       ? 'Luxury hotels'
-                      : isLuxury && selectedType == 'Restaurants'
-                      ? 'Fine dining'
-                      : selectedType,
+                      : 'Fine dining',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: primaryTextColor,
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                ..._getTypeCards(isLuxury: true, isNight: false),
+              ] else ...[
+                Text(
+                  selectedTypeFilter == null ? 'Places' : _activeFilterLabel,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
@@ -734,16 +944,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ];
     }
 
-    final filteredPlaces = normalPlaces.where((place) {
-      final matchesType = selectedType == 'Activities'
-          ? place.type == 'activity'
-          : selectedType == 'Hotels'
-          ? place.type == 'hotel'
-          : place.type == 'restaurant';
-
-      return matchesType;
-    }).toList();
-
     final cards = <Widget>[
       if (placesError != null)
         _ExploreErrorBanner(
@@ -751,7 +951,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
     ];
 
-    if (filteredPlaces.isEmpty) {
+    if (normalPlaces.isEmpty) {
       cards.add(
         const Padding(
           padding: EdgeInsets.only(top: 20),
@@ -772,7 +972,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     cards.addAll(
-      filteredPlaces.map((place) {
+      normalPlaces.map((place) {
         return _ExploreCard(
           title: place.name,
           location: '${place.city}, ${place.country}',
@@ -1007,6 +1207,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   IconData _getPlaceIcon(PlaceModel place) {
     if (place.type == 'hotel') return Icons.hotel_outlined;
     if (place.type == 'restaurant') return Icons.restaurant_outlined;
+    if (place.type == 'nightlife') return Icons.nightlife_outlined;
 
     final category = place.category.toLowerCase();
 
@@ -1015,6 +1216,67 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (category.contains('nature')) return Icons.landscape_outlined;
 
     return Icons.map_outlined;
+  }
+}
+
+class _ActiveFilterChip extends StatelessWidget {
+  final String label;
+  final bool isVisible;
+  final VoidCallback onClear;
+
+  const _ActiveFilterChip({
+    required this.label,
+    required this.isVisible,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isVisible) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 7, 6, 7),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Filter: $label',
+                  style: const TextStyle(
+                    color: Color(0xFF1D4ED8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: onClear,
+                  borderRadius: BorderRadius.circular(999),
+                  child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Color(0xFF1D4ED8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1210,6 +1472,7 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
     if (suggestion.kind == 'city') return Icons.location_city_outlined;
     if (suggestion.type == 'hotel') return Icons.hotel_outlined;
     if (suggestion.type == 'restaurant') return Icons.restaurant_outlined;
+    if (suggestion.type == 'nightlife') return Icons.nightlife_outlined;
     return Icons.map_outlined;
   }
 

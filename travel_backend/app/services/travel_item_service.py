@@ -81,22 +81,55 @@ class TravelItemService:
         q: str,
         include_images: bool = False,
         limit: int = DEFAULT_LIMIT,
+        type: str | None = None,
+        category: str | None = None,
+        budget_level: str | None = None,
+        interests: str | None = None,
+        family_friendly: bool | None = None,
+        culture: bool | None = None,
+        romantic: bool | None = None,
+        adventure: bool | None = None,
+        nightlife: bool | None = None,
     ) -> TravelItemsSearchResponse:
         normalized_query = normalize_text(q)
+        filters = self._build_filter_query(
+            type=type,
+            category=category,
+            budget_level=budget_level,
+            interests=interests,
+            family_friendly=family_friendly,
+            culture=culture,
+            romantic=romantic,
+            adventure=adventure,
+            nightlife=nightlife,
+        )
         documents = await self.repository.search_travel_items(
-            self._build_search_query(normalized_query),
+            self._build_search_query(normalized_query, filters),
             self._clean_limit(limit),
         )
         if include_images:
             documents = await self._enrich_documents_with_images(documents)
         items = [self._to_search_response(document) for document in documents]
-        return TravelItemsSearchResponse(query=normalized_query, items=items, count=len(items))
+        return TravelItemsSearchResponse(
+            query=normalized_query,
+            items=items,
+            count=len(items),
+        )
 
     async def suggest_travel_items(
         self,
         *,
         q: str,
         limit: int = SUGGESTIONS_DEFAULT_LIMIT,
+        type: str | None = None,
+        category: str | None = None,
+        budget_level: str | None = None,
+        interests: str | None = None,
+        family_friendly: bool | None = None,
+        culture: bool | None = None,
+        romantic: bool | None = None,
+        adventure: bool | None = None,
+        nightlife: bool | None = None,
     ) -> TravelItemSuggestionsResponse:
         normalized_query = normalize_text(q)
         clean_limit = self._clean_limit(
@@ -105,12 +138,45 @@ class TravelItemService:
             maximum=SUGGESTIONS_MAX_LIMIT,
         )
         if len(normalized_query) < SUGGESTIONS_MIN_QUERY_LENGTH:
-            return TravelItemSuggestionsResponse(query=normalized_query, suggestions=[], count=0)
+            return TravelItemSuggestionsResponse(
+                query=normalized_query,
+                suggestions=[],
+                count=0,
+            )
 
         prefix_filter = self._build_suggestion_prefix_filter(normalized_query)
+        filters = self._build_filter_query(
+            type=type,
+            category=category,
+            budget_level=budget_level,
+            interests=interests,
+            family_friendly=family_friendly,
+            culture=culture,
+            romantic=romantic,
+            adventure=adventure,
+            nightlife=nightlife,
+        )
         suggestions: list[TravelItemSuggestion] = []
 
-        city_documents = await self.repository.find_city_suggestions(prefix_filter, clean_limit)
+        if filters:
+            item_documents = await self.repository.find_filtered_item_suggestions(
+                prefix_filter,
+                clean_limit,
+                filters,
+            )
+            for document in item_documents:
+                suggestions.append(self._to_item_suggestion(document))
+
+            return TravelItemSuggestionsResponse(
+                query=normalized_query,
+                suggestions=suggestions,
+                count=len(suggestions),
+            )
+
+        city_documents = await self.repository.find_city_suggestions(
+            prefix_filter,
+            clean_limit,
+        )
         for document in city_documents:
             suggestions.append(self._to_city_suggestion(document))
             if len(suggestions) >= clean_limit:
@@ -121,7 +187,10 @@ class TravelItemService:
                 )
 
         remaining_limit = clean_limit - len(suggestions)
-        country_documents = await self.repository.find_country_suggestions(prefix_filter, remaining_limit)
+        country_documents = await self.repository.find_country_suggestions(
+            prefix_filter,
+            remaining_limit,
+        )
         for document in country_documents:
             suggestions.append(self._to_country_suggestion(document))
             if len(suggestions) >= clean_limit:
@@ -132,11 +201,18 @@ class TravelItemService:
                 )
 
         remaining_limit = clean_limit - len(suggestions)
-        item_documents = await self.repository.find_item_suggestions(prefix_filter, remaining_limit)
+        item_documents = await self.repository.find_item_suggestions(
+            prefix_filter,
+            remaining_limit,
+        )
         for document in item_documents:
             suggestions.append(self._to_item_suggestion(document))
 
-        return TravelItemSuggestionsResponse(query=normalized_query, suggestions=suggestions, count=len(suggestions))
+        return TravelItemSuggestionsResponse(
+            query=normalized_query,
+            suggestions=suggestions,
+            count=len(suggestions),
+        )
 
     async def list_featured_travel_items(
         self,
@@ -208,11 +284,58 @@ class TravelItemService:
 
         return query
 
-    def _build_search_query(self, query_text: str) -> dict[str, Any]:
+    def _build_filter_query(
+        self,
+        *,
+        type: str | None,
+        category: str | None,
+        budget_level: str | None,
+        interests: str | None,
+        family_friendly: bool | None,
+        culture: bool | None,
+        romantic: bool | None,
+        adventure: bool | None,
+        nightlife: bool | None,
+    ) -> dict[str, Any]:
+        filters: dict[str, Any] = {}
+
+        if type:
+            normalized_type = normalize_text(type)
+            if normalized_type in ALLOWED_TYPES:
+                filters["type"] = normalized_type
+        if category:
+            filters["category"] = category.strip()
+        if budget_level:
+            normalized_budget = normalize_text(budget_level)
+            if normalized_budget in ALLOWED_BUDGET_LEVELS:
+                filters["item_budget_level"] = normalized_budget
+        interest_values = parse_interests(interests)
+        if interest_values:
+            filters["interest_tags"] = {"$in": interest_values}
+
+        flag_filters = {
+            "flags.family_friendly": family_friendly,
+            "flags.culture_item": culture,
+            "flags.romantic_item": romantic,
+            "flags.adventure_item": adventure,
+            "flags.nightlife_item": nightlife,
+        }
+        for key, value in flag_filters.items():
+            if value is not None:
+                filters[key] = value
+
+        return filters
+
+    def _build_search_query(
+        self,
+        query_text: str,
+        filters: dict[str, Any],
+    ) -> dict[str, Any]:
         safe_pattern = re.escape(query_text)
         regex_filter = {"$regex": safe_pattern, "$options": "i"}
         return {
             "is_active": True,
+            **filters,
             "$or": [
                 {"name_normalized": regex_filter},
                 {"country_normalized": regex_filter},
