@@ -21,14 +21,28 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def object_schema(required: list[str], properties: dict[str, Any]) -> dict[str, Any]:
-    return {
+def object_schema(
+    required: list[str],
+    properties: dict[str, Any],
+    *,
+    additional_properties: bool = True,
+) -> dict[str, Any]:
+    schema = {
         "$jsonSchema": {
             "bsonType": "object",
             "required": required,
             "properties": properties,
         }
     }
+
+    if not additional_properties:
+        schema["$jsonSchema"]["additionalProperties"] = False
+        schema["$jsonSchema"]["properties"] = {
+            "_id": {"bsonType": "objectId"},
+            **properties,
+        }
+
+    return schema
 
 
 VALIDATORS: dict[str, dict[str, Any]] = {
@@ -63,11 +77,14 @@ VALIDATORS: dict[str, dict[str, Any]] = {
             "name_normalized",
             "category",
             "cost",
+            "currency",
             "duration_hours",
             "rating",
             "interest_tags",
             "item_budget_level",
             "flags",
+            "images",
+            "source",
             "is_active",
             "created_at",
             "updated_at",
@@ -86,28 +103,34 @@ VALIDATORS: dict[str, dict[str, Any]] = {
             "duration_hours": {"bsonType": ["double", "int", "long", "decimal"]},
             "rating": {"bsonType": ["double", "int", "long", "decimal"], "minimum": 0, "maximum": 5},
             "interest_tags": {"bsonType": "array", "items": {"bsonType": "string"}},
-            "item_budget_level": {"enum": ["low", "mid-range", "luxury"]},
+            "item_budget_level": {"enum": ["low", "mid", "luxury"]},
             "flags": {
                 "bsonType": "object",
-                "required": ["family_friendly", "culture", "romantic", "adventure", "nightlife"],
+                "required": ["family_friendly", "culture_item", "romantic_item", "adventure_item", "nightlife_item"],
+                "additionalProperties": False,
                 "properties": {
                     "family_friendly": {"bsonType": "bool"},
-                    "culture": {"bsonType": "bool"},
-                    "romantic": {"bsonType": "bool"},
-                    "adventure": {"bsonType": "bool"},
-                    "nightlife": {"bsonType": "bool"},
+                    "culture_item": {"bsonType": "bool"},
+                    "romantic_item": {"bsonType": "bool"},
+                    "adventure_item": {"bsonType": "bool"},
+                    "nightlife_item": {"bsonType": "bool"},
                 },
             },
             "images": {"bsonType": "array"},
-            "description": {"bsonType": ["string", "null"]},
-            "address": {"bsonType": ["string", "null"]},
-            "latitude": {"bsonType": ["double", "int", "long", "decimal", "null"]},
-            "longitude": {"bsonType": ["double", "int", "long", "decimal", "null"]},
-            "source": {"bsonType": "object"},
+            "source": {
+                "bsonType": "object",
+                "required": ["file", "row_number"],
+                "additionalProperties": False,
+                "properties": {
+                    "file": {"bsonType": "string"},
+                    "row_number": {"bsonType": ["int", "long"]},
+                },
+            },
             "is_active": {"bsonType": "bool"},
             "created_at": {"bsonType": "date"},
             "updated_at": {"bsonType": "date"},
         },
+        additional_properties=False,
     ),
     "ai_packages": object_schema(
         ["request", "status", "created_at", "updated_at"],
@@ -239,7 +262,7 @@ INDEXES: dict[str, list[tuple[Any, dict[str, Any]]]] = {
         ([("interest_tags", ASCENDING)], {}),
         ([("rating", DESCENDING)], {}),
         ([("cost", ASCENDING)], {}),
-        ([("flags.nightlife", ASCENDING)], {}),
+        ([("flags.nightlife_item", ASCENDING)], {}),
         ([("flags.family_friendly", ASCENDING)], {}),
         (
             [
@@ -272,7 +295,7 @@ INDEXES: dict[str, list[tuple[Any, dict[str, Any]]]] = {
         (
             [
                 ("country_normalized", ASCENDING),
-                ("flags.nightlife", ASCENDING),
+                ("flags.nightlife_item", ASCENDING),
                 ("rating", DESCENDING),
             ],
             {"name": "night_mode_country_rating"},
@@ -401,20 +424,16 @@ def seed_travel_items(db) -> None:
             "duration_hours": 4.5,
             "rating": 4.8,
             "interest_tags": ["nature", "beach", "culture"],
-            "item_budget_level": "mid-range",
+            "item_budget_level": "mid",
             "flags": {
                 "family_friendly": True,
-                "culture": True,
-                "romantic": False,
-                "adventure": False,
-                "nightlife": False,
+                "culture_item": True,
+                "romantic_item": False,
+                "adventure_item": False,
+                "nightlife_item": False,
             },
             "images": [],
-            "description": None,
-            "address": None,
-            "latitude": None,
-            "longitude": None,
-            "source": {"dataset_name": "sample_seed", "row_number": 1, "original_name": "Island Sightseeing Tour"},
+            "source": {"file": "sample_seed", "row_number": 1},
             "is_active": True,
             "created_at": timestamp,
             "updated_at": timestamp,
@@ -436,17 +455,13 @@ def seed_travel_items(db) -> None:
             "item_budget_level": "low",
             "flags": {
                 "family_friendly": True,
-                "culture": True,
-                "romantic": False,
-                "adventure": False,
-                "nightlife": False,
+                "culture_item": True,
+                "romantic_item": False,
+                "adventure_item": False,
+                "nightlife_item": False,
             },
             "images": [],
-            "description": None,
-            "address": None,
-            "latitude": None,
-            "longitude": None,
-            "source": {"dataset_name": "sample_seed", "row_number": 2, "original_name": "Old City Culture Walk"},
+            "source": {"file": "sample_seed", "row_number": 2},
             "is_active": True,
             "created_at": timestamp,
             "updated_at": timestamp,
@@ -465,20 +480,16 @@ def seed_travel_items(db) -> None:
             "duration_hours": 1.5,
             "rating": 4.8,
             "interest_tags": ["food", "culture", "local"],
-            "item_budget_level": "mid-range",
+            "item_budget_level": "mid",
             "flags": {
                 "family_friendly": True,
-                "culture": True,
-                "romantic": True,
-                "adventure": False,
-                "nightlife": False,
+                "culture_item": True,
+                "romantic_item": True,
+                "adventure_item": False,
+                "nightlife_item": False,
             },
             "images": [],
-            "description": None,
-            "address": None,
-            "latitude": None,
-            "longitude": None,
-            "source": {"dataset_name": "sample_seed", "row_number": 3, "original_name": "Pasta House"},
+            "source": {"file": "sample_seed", "row_number": 3},
             "is_active": True,
             "created_at": timestamp,
             "updated_at": timestamp,
@@ -500,17 +511,13 @@ def seed_travel_items(db) -> None:
             "item_budget_level": "luxury",
             "flags": {
                 "family_friendly": False,
-                "culture": False,
-                "romantic": True,
-                "adventure": False,
-                "nightlife": True,
+                "culture_item": False,
+                "romantic_item": True,
+                "adventure_item": False,
+                "nightlife_item": True,
             },
             "images": [],
-            "description": None,
-            "address": None,
-            "latitude": None,
-            "longitude": None,
-            "source": {"dataset_name": "sample_seed", "row_number": 4, "original_name": "Skyline Rooftop Night"},
+            "source": {"file": "sample_seed", "row_number": 4},
             "is_active": True,
             "created_at": timestamp,
             "updated_at": timestamp,
@@ -633,7 +640,7 @@ def verify_database(db) -> None:
 
 
 def main() -> None:
-    print(f"Connecting to MongoDB: {MONGODB_URI}")
+    print("Connecting to MongoDB using configured URI")
     client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
     print("OK MongoDB ping successful")
