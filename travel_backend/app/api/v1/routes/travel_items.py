@@ -3,7 +3,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.mongodb import get_database
 from app.repositories.travel_item_repository import TravelItemRepository
-from app.schemas.travel_item import FeaturedTravelItemsResponse, TravelItemsListResponse, TravelItemsSearchResponse
+from app.schemas.travel_item import (
+    FeaturedTravelItemsResponse,
+    TravelItemSuggestionsResponse,
+    TravelItemsListResponse,
+    TravelItemsSearchResponse,
+)
 from app.services.travel_item_service import TravelItemService
 
 
@@ -52,15 +57,25 @@ async def list_travel_items(
     return TravelItemsListResponse(items=items, count=len(items))
 
 
+@router.get("/suggestions", response_model=TravelItemSuggestionsResponse, response_model_exclude_none=True)
+async def suggest_travel_items(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=5, ge=1),
+    service: TravelItemService = Depends(get_travel_item_service),
+) -> TravelItemSuggestionsResponse:
+    return await service.suggest_travel_items(q=q, limit=limit)
+
+
 @router.get("/search", response_model=TravelItemsSearchResponse)
 async def search_travel_items(
     q: str = Query(..., min_length=1),
+    include_images: bool = False,
     limit: int = Query(default=20, ge=1, le=100),
     service: TravelItemService = Depends(get_travel_item_service),
 ) -> TravelItemsSearchResponse:
     if not q.strip():
         raise HTTPException(status_code=422, detail="q must contain search text")
-    return await service.search_travel_items(q=q, limit=limit)
+    return await service.search_travel_items(q=q, include_images=include_images, limit=limit)
 
 
 @router.get("/featured", response_model=FeaturedTravelItemsResponse)

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -62,6 +62,21 @@ class TravelItemsListResponse(BaseModel):
 class TravelItemsSearchResponse(BaseModel):
     query: str
     items: list[dict[str, Any]]
+    count: int
+
+
+class TravelItemSuggestion(BaseModel):
+    label: str
+    kind: Literal["country", "city", "item"]
+    value: str
+    type: str | None = None
+    city: str | None = None
+    country: str | None = None
+
+
+class TravelItemSuggestionsResponse(BaseModel):
+    query: str
+    suggestions: list[TravelItemSuggestion]
     count: int
 
 

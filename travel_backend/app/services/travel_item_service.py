@@ -3,7 +3,13 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.repositories.travel_item_repository import TravelItemRepository
-from app.schemas.travel_item import FeaturedTravelItemsResponse, TravelItemResponse, TravelItemsSearchResponse
+from app.schemas.travel_item import (
+    FeaturedTravelItemsResponse,
+    TravelItemResponse,
+    TravelItemSuggestion,
+    TravelItemSuggestionsResponse,
+    TravelItemsSearchResponse,
+)
 from app.services.image_service import ImageService
 from app.utils.object_id import object_id_to_str
 
@@ -12,6 +18,9 @@ MAX_LIMIT = 100
 DEFAULT_LIMIT = 20
 FEATURED_DEFAULT_LIMIT = 12
 FEATURED_MAX_LIMIT = 50
+SUGGESTIONS_DEFAULT_LIMIT = 5
+SUGGESTIONS_MAX_LIMIT = 5
+SUGGESTIONS_MIN_QUERY_LENGTH = 2
 ALLOWED_TYPES = {"activity", "hotel", "restaurant", "nightlife"}
 ALLOWED_BUDGET_LEVELS = {"low", "mid", "luxury"}
 
@@ -70,6 +79,7 @@ class TravelItemService:
         self,
         *,
         q: str,
+        include_images: bool = False,
         limit: int = DEFAULT_LIMIT,
     ) -> TravelItemsSearchResponse:
         normalized_query = normalize_text(q)
@@ -77,8 +87,56 @@ class TravelItemService:
             self._build_search_query(normalized_query),
             self._clean_limit(limit),
         )
+        if include_images:
+            documents = await self._enrich_documents_with_images(documents)
         items = [self._to_search_response(document) for document in documents]
         return TravelItemsSearchResponse(query=normalized_query, items=items, count=len(items))
+
+    async def suggest_travel_items(
+        self,
+        *,
+        q: str,
+        limit: int = SUGGESTIONS_DEFAULT_LIMIT,
+    ) -> TravelItemSuggestionsResponse:
+        normalized_query = normalize_text(q)
+        clean_limit = self._clean_limit(
+            limit,
+            default=SUGGESTIONS_DEFAULT_LIMIT,
+            maximum=SUGGESTIONS_MAX_LIMIT,
+        )
+        if len(normalized_query) < SUGGESTIONS_MIN_QUERY_LENGTH:
+            return TravelItemSuggestionsResponse(query=normalized_query, suggestions=[], count=0)
+
+        prefix_filter = self._build_suggestion_prefix_filter(normalized_query)
+        suggestions: list[TravelItemSuggestion] = []
+
+        city_documents = await self.repository.find_city_suggestions(prefix_filter, clean_limit)
+        for document in city_documents:
+            suggestions.append(self._to_city_suggestion(document))
+            if len(suggestions) >= clean_limit:
+                return TravelItemSuggestionsResponse(
+                    query=normalized_query,
+                    suggestions=suggestions,
+                    count=len(suggestions),
+                )
+
+        remaining_limit = clean_limit - len(suggestions)
+        country_documents = await self.repository.find_country_suggestions(prefix_filter, remaining_limit)
+        for document in country_documents:
+            suggestions.append(self._to_country_suggestion(document))
+            if len(suggestions) >= clean_limit:
+                return TravelItemSuggestionsResponse(
+                    query=normalized_query,
+                    suggestions=suggestions,
+                    count=len(suggestions),
+                )
+
+        remaining_limit = clean_limit - len(suggestions)
+        item_documents = await self.repository.find_item_suggestions(prefix_filter, remaining_limit)
+        for document in item_documents:
+            suggestions.append(self._to_item_suggestion(document))
+
+        return TravelItemSuggestionsResponse(query=normalized_query, suggestions=suggestions, count=len(suggestions))
 
     async def list_featured_travel_items(
         self,
@@ -159,12 +217,11 @@ class TravelItemService:
                 {"name_normalized": regex_filter},
                 {"country_normalized": regex_filter},
                 {"city_normalized": regex_filter},
-                {"category": regex_filter},
-                {"interest_tags": regex_filter},
-                {"type": regex_filter},
-                {"item_budget_level": regex_filter},
             ],
         }
+
+    def _build_suggestion_prefix_filter(self, query_text: str) -> dict[str, Any]:
+        return {"$regex": f"^{re.escape(query_text)}"}
 
     def _build_featured_query(
         self,
@@ -242,6 +299,36 @@ class TravelItemService:
 
     def _to_search_response(self, document: dict[str, Any]) -> dict[str, Any]:
         return self._to_full_document_response(document)
+
+    def _to_city_suggestion(self, document: dict[str, Any]) -> TravelItemSuggestion:
+        city = document["city"]
+        return TravelItemSuggestion(
+            label=city,
+            kind="city",
+            value=city,
+            city=city,
+            country=document["country"],
+        )
+
+    def _to_country_suggestion(self, document: dict[str, Any]) -> TravelItemSuggestion:
+        country = document["country"]
+        return TravelItemSuggestion(
+            label=country,
+            kind="country",
+            value=country,
+            country=country,
+        )
+
+    def _to_item_suggestion(self, document: dict[str, Any]) -> TravelItemSuggestion:
+        name = document["name"]
+        return TravelItemSuggestion(
+            label=name,
+            kind="item",
+            value=name,
+            type=document["type"],
+            city=document["city"],
+            country=document["country"],
+        )
 
     def _to_full_document_response(self, document: dict[str, Any]) -> dict[str, Any]:
         return {

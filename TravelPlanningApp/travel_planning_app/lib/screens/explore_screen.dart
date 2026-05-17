@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/place_model.dart';
@@ -20,8 +22,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
   String? placesError;
   List<PlaceModel> normalPlaces = SampleData.places;
 
+  final ApiService _apiService = ApiService();
   final TextEditingController searchController = TextEditingController();
   String searchText = '';
+  Timer? _suggestionsDebounce;
+  int _suggestionsRequestId = 0;
+  bool isLoadingSuggestions = false;
+  List<TravelItemSuggestion> searchSuggestions = [];
 
   final List<String> types = ['Activities', 'Hotels', 'Restaurants'];
 
@@ -39,11 +46,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (!_isNormalMode(oldWidget.selectedMode) &&
         _isNormalMode(widget.selectedMode)) {
       _loadNormalPlaces();
+    } else if (_isNormalMode(oldWidget.selectedMode) &&
+        !_isNormalMode(widget.selectedMode)) {
+      _clearSuggestions();
     }
   }
 
   @override
   void dispose() {
+    _suggestionsDebounce?.cancel();
     searchController.dispose();
     super.dispose();
   }
@@ -55,7 +66,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
 
     try {
-      final places = await ApiService().getTravelItems(
+      final places = await _apiService.getTravelItems(
         includeImages: true,
         limit: 20,
       );
@@ -75,6 +86,187 @@ class _ExploreScreenState extends State<ExploreScreen> {
         isLoadingPlaces = false;
       });
     }
+  }
+
+  Future<void> _searchNormalPlaces(String query) async {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) {
+      await _loadNormalPlaces();
+      return;
+    }
+
+    setState(() {
+      isLoadingPlaces = true;
+      placesError = null;
+    });
+
+    try {
+      final places = await _apiService.searchTravelItems(
+        query: trimmedQuery,
+        includeImages: true,
+        limit: 20,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = places;
+        isLoadingPlaces = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = SampleData.places;
+        placesError = error.toString();
+        isLoadingPlaces = false;
+      });
+    }
+  }
+
+  Future<void> _loadPlacesForSuggestion(TravelItemSuggestion suggestion) async {
+    _suggestionsDebounce?.cancel();
+    _suggestionsRequestId++;
+
+    setState(() {
+      searchText = suggestion.value;
+      searchSuggestions = [];
+      isLoadingSuggestions = false;
+      placesError = null;
+    });
+    searchController.text = suggestion.value;
+    searchController.selection = TextSelection.collapsed(
+      offset: searchController.text.length,
+    );
+
+    setState(() {
+      isLoadingPlaces = true;
+    });
+
+    try {
+      final List<PlaceModel> places;
+      if (suggestion.kind == 'city') {
+        places = await _apiService.getTravelItems(
+          city: suggestion.value,
+          includeImages: true,
+          limit: 20,
+        );
+      } else if (suggestion.kind == 'country') {
+        places = await _apiService.getTravelItems(
+          country: suggestion.value,
+          includeImages: true,
+          limit: 20,
+        );
+      } else {
+        places = await _apiService.searchTravelItems(
+          query: suggestion.value,
+          includeImages: true,
+          limit: 20,
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = places;
+        isLoadingPlaces = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = SampleData.places;
+        placesError = error.toString();
+        isLoadingPlaces = false;
+      });
+    }
+  }
+
+  void _handleSearchChanged(String value) {
+    setState(() {
+      searchText = value;
+    });
+
+    if (!_isNormalMode(widget.selectedMode)) {
+      return;
+    }
+
+    final query = value.trim();
+    _suggestionsDebounce?.cancel();
+
+    if (query.length < 2) {
+      _suggestionsRequestId++;
+      _clearSuggestions();
+      return;
+    }
+
+    _suggestionsDebounce = Timer(const Duration(milliseconds: 300), () {
+      _loadSuggestions(query);
+    });
+  }
+
+  Future<void> _loadSuggestions(String query) async {
+    final requestId = ++_suggestionsRequestId;
+    setState(() {
+      isLoadingSuggestions = true;
+    });
+
+    try {
+      final suggestions = await _apiService.getTravelItemSuggestions(
+        query: query,
+        limit: 5,
+      );
+
+      if (!mounted || requestId != _suggestionsRequestId) return;
+      if (searchController.text.trim() != query) return;
+      if (!_isNormalMode(widget.selectedMode)) return;
+
+      setState(() {
+        searchSuggestions = suggestions.take(5).toList(growable: false);
+        isLoadingSuggestions = false;
+      });
+    } catch (_) {
+      if (!mounted || requestId != _suggestionsRequestId) return;
+
+      setState(() {
+        searchSuggestions = [];
+        isLoadingSuggestions = false;
+      });
+    }
+  }
+
+  void _clearSuggestions() {
+    if (!mounted) return;
+    setState(() {
+      searchSuggestions = [];
+      isLoadingSuggestions = false;
+    });
+  }
+
+  void _clearSearch() {
+    _suggestionsDebounce?.cancel();
+    _suggestionsRequestId++;
+    searchController.clear();
+    setState(() {
+      searchText = '';
+      searchSuggestions = [];
+      isLoadingSuggestions = false;
+    });
+
+    if (_isNormalMode(widget.selectedMode)) {
+      _loadNormalPlaces();
+    }
+  }
+
+  void _handleSearchSubmitted(String value) {
+    if (!_isNormalMode(widget.selectedMode)) {
+      return;
+    }
+
+    _suggestionsDebounce?.cancel();
+    _suggestionsRequestId++;
+    _clearSuggestions();
+    _searchNormalPlaces(value);
   }
 
   bool _isNormalMode(String mode) {
@@ -98,10 +290,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ? const Color(0xFF111827)
         : Colors.white;
 
-    final darkCardColor = isLuxury || isNight
-        ? const Color(0xFF111827)
-        : const Color(0xFFE0F2FE);
-
     final primaryTextColor = isLuxury
         ? const Color(0xFFFFF8E1)
         : isNight
@@ -121,9 +309,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
         : const Color(0xFF2563EB);
 
     final borderColor = isLuxury
-        ? const Color(0xFFE8C766).withOpacity(0.35)
+        ? const Color(0xFFE8C766).withValues(alpha: 0.35)
         : isNight
-        ? const Color(0xFFA855F7).withOpacity(0.35)
+        ? const Color(0xFFA855F7).withValues(alpha: 0.35)
         : const Color(0xFFE5E7EB);
 
     return Scaffold(
@@ -176,7 +364,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withValues(alpha: 0.06),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
                     ),
@@ -184,11 +372,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 ),
                 child: TextField(
                   controller: searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      searchText = value;
-                    });
-                  },
+                  onChanged: _handleSearchChanged,
+                  onSubmitted: _handleSearchSubmitted,
                   decoration: InputDecoration(
                     hintText: isLuxury
                         ? 'Search villas, premium stays, or fine dining...'
@@ -205,12 +390,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     suffixIcon: searchText.isEmpty
                         ? Icon(Icons.tune, color: accentColor)
                         : IconButton(
-                            onPressed: () {
-                              searchController.clear();
-                              setState(() {
-                                searchText = '';
-                              });
-                            },
+                            onPressed: _clearSearch,
                             icon: Icon(Icons.close, color: accentColor),
                           ),
                     border: InputBorder.none,
@@ -223,6 +403,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                 ),
               ),
+
+              if (!isLuxury && !isNight)
+                _SearchSuggestionsDropdown(
+                  suggestions: searchSuggestions,
+                  isLoading: isLoadingSuggestions,
+                  accentColor: accentColor,
+                  borderColor: borderColor,
+                  onSuggestionTap: _loadPlacesForSuggestion,
+                ),
 
               const SizedBox(height: 24),
 
@@ -552,18 +741,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ? place.type == 'hotel'
           : place.type == 'restaurant';
 
-      final searchableText = [
-        place.name,
-        place.city,
-        place.country,
-        place.type,
-        place.category,
-        ...place.interestTags,
-      ].join(' ').toLowerCase();
-
-      final matchesSearch = query.isEmpty || searchableText.contains(query);
-
-      return matchesType && matchesSearch;
+      return matchesType;
     }).toList();
 
     final cards = <Widget>[
@@ -908,6 +1086,161 @@ class _ExploreImagePlaceholder extends StatelessWidget {
   }
 }
 
+class _SearchSuggestionsDropdown extends StatelessWidget {
+  final List<TravelItemSuggestion> suggestions;
+  final bool isLoading;
+  final Color accentColor;
+  final Color borderColor;
+  final ValueChanged<TravelItemSuggestion> onSuggestionTap;
+
+  const _SearchSuggestionsDropdown({
+    required this.suggestions,
+    required this.isLoading,
+    required this.accentColor,
+    required this.borderColor,
+    required this.onSuggestionTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isLoading && suggestions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isLoading)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accentColor,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Searching...',
+                    style: TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ...suggestions.take(5).map((suggestion) {
+            return InkWell(
+              onTap: () => onSuggestionTap(suggestion),
+              borderRadius: BorderRadius.circular(14),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 11,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _iconForSuggestion(suggestion),
+                      color: accentColor,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            suggestion.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF111827),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _subtitleForSuggestion(suggestion),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForSuggestion(TravelItemSuggestion suggestion) {
+    if (suggestion.kind == 'country') return Icons.public;
+    if (suggestion.kind == 'city') return Icons.location_city_outlined;
+    if (suggestion.type == 'hotel') return Icons.hotel_outlined;
+    if (suggestion.type == 'restaurant') return Icons.restaurant_outlined;
+    return Icons.map_outlined;
+  }
+
+  String _subtitleForSuggestion(TravelItemSuggestion suggestion) {
+    if (suggestion.kind == 'country') {
+      return 'Country';
+    }
+    if (suggestion.kind == 'city') {
+      return suggestion.country == null
+          ? 'City'
+          : 'City • ${suggestion.country}';
+    }
+
+    final parts = <String>[
+      _formatKind(suggestion.type ?? suggestion.kind),
+      if (suggestion.city != null && suggestion.country != null)
+        '${suggestion.city}, ${suggestion.country}'
+      else if (suggestion.city != null)
+        suggestion.city!
+      else if (suggestion.country != null)
+        suggestion.country!,
+    ];
+    return parts.join(' • ');
+  }
+
+  String _formatKind(String value) {
+    if (value.isEmpty) return value;
+    return value[0].toUpperCase() + value.substring(1);
+  }
+}
+
 class _ExploreCard extends StatelessWidget {
   final String title;
   final String location;
@@ -972,14 +1305,16 @@ class _ExploreCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
           color: isLuxury
-              ? const Color(0xFFE8C766).withOpacity(0.35)
+              ? const Color(0xFFE8C766).withValues(alpha: 0.35)
               : isNight
-              ? const Color(0xFFA855F7).withOpacity(0.35)
+              ? const Color(0xFFA855F7).withValues(alpha: 0.35)
               : const Color(0xFFE5E7EB),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isLuxury || isNight ? 0.35 : 0.05),
+            color: Colors.black.withValues(
+              alpha: isLuxury || isNight ? 0.35 : 0.05,
+            ),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
@@ -1179,7 +1514,7 @@ class _PopularDestinationCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.12),
+              color: Colors.black.withValues(alpha: 0.12),
               blurRadius: 16,
               offset: const Offset(0, 8),
             ),
@@ -1193,7 +1528,7 @@ class _PopularDestinationCard extends StatelessWidget {
               child: Icon(
                 Icons.public,
                 size: 120,
-                color: Colors.white.withOpacity(0.12),
+                color: Colors.white.withValues(alpha: 0.12),
               ),
             ),
             Padding(
@@ -1294,9 +1629,11 @@ class _PopularDestinationCard extends StatelessWidget {
                 height: 34,
                 width: 34,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
+                  color: Colors.white.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withOpacity(0.7)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
                 ),
                 child: const Icon(
                   Icons.favorite_border,
@@ -1322,7 +1659,7 @@ class _CityPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.22),
+        color: Colors.white.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
