@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../models/place_model.dart';
+import '../services/api_service.dart';
 import '../services/sample_data.dart';
 import 'destination_details_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
   final String selectedMode;
 
-  const ExploreScreen({
-    super.key,
-    this.selectedMode = 'Casual',
-  });
+  const ExploreScreen({super.key, this.selectedMode = 'Casual'});
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -18,20 +16,69 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   String selectedType = 'Activities';
+  bool isLoadingPlaces = false;
+  String? placesError;
+  List<PlaceModel> normalPlaces = SampleData.places;
 
   final TextEditingController searchController = TextEditingController();
   String searchText = '';
 
-  final List<String> types = [
-    'Activities',
-    'Hotels',
-    'Restaurants',
-  ];
+  final List<String> types = ['Activities', 'Hotels', 'Restaurants'];
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isNormalMode(widget.selectedMode)) {
+      _loadNormalPlaces();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ExploreScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isNormalMode(oldWidget.selectedMode) &&
+        _isNormalMode(widget.selectedMode)) {
+      _loadNormalPlaces();
+    }
+  }
 
   @override
   void dispose() {
     searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadNormalPlaces() async {
+    setState(() {
+      isLoadingPlaces = true;
+      placesError = null;
+    });
+
+    try {
+      final places = await ApiService().getTravelItems(
+        includeImages: true,
+        limit: 20,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = places;
+        isLoadingPlaces = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        normalPlaces = SampleData.places;
+        placesError = error.toString();
+        isLoadingPlaces = false;
+      });
+    }
+  }
+
+  bool _isNormalMode(String mode) {
+    return mode != 'Luxury' && mode != 'Night';
   }
 
   @override
@@ -42,41 +89,42 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final backgroundColor = isLuxury
         ? const Color(0xFF030303)
         : isNight
-            ? const Color(0xFF050818)
-            : const Color(0xFFFDFDFD);
+        ? const Color(0xFF050818)
+        : const Color(0xFFFDFDFD);
 
     final cardColor = isLuxury
         ? const Color(0xFF0B1020)
         : isNight
-            ? const Color(0xFF111827)
-            : Colors.white;
+        ? const Color(0xFF111827)
+        : Colors.white;
 
-    final darkCardColor =
-        isLuxury || isNight ? const Color(0xFF111827) : const Color(0xFFE0F2FE);
+    final darkCardColor = isLuxury || isNight
+        ? const Color(0xFF111827)
+        : const Color(0xFFE0F2FE);
 
     final primaryTextColor = isLuxury
         ? const Color(0xFFFFF8E1)
         : isNight
-            ? Colors.white
-            : const Color(0xFF111827);
+        ? Colors.white
+        : const Color(0xFF111827);
 
     final secondaryTextColor = isLuxury
         ? const Color(0xFFB8B8B8)
         : isNight
-            ? const Color(0xFFB8B8D1)
-            : const Color(0xFF6B7280);
+        ? const Color(0xFFB8B8D1)
+        : const Color(0xFF6B7280);
 
     final accentColor = isLuxury
         ? const Color(0xFFE8C766)
         : isNight
-            ? const Color(0xFFA855F7)
-            : const Color(0xFF2563EB);
+        ? const Color(0xFFA855F7)
+        : const Color(0xFF2563EB);
 
     final borderColor = isLuxury
         ? const Color(0xFFE8C766).withOpacity(0.35)
         : isNight
-            ? const Color(0xFFA855F7).withOpacity(0.35)
-            : const Color(0xFFE5E7EB);
+        ? const Color(0xFFA855F7).withOpacity(0.35)
+        : const Color(0xFFE5E7EB);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -90,8 +138,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 isLuxury
                     ? 'Explore premium places'
                     : isNight
-                        ? 'Explore night places'
-                        : 'Explore places',
+                    ? 'Explore night places'
+                    : 'Explore places',
                 style: TextStyle(
                   fontSize: 27,
                   fontWeight: FontWeight.w900,
@@ -103,8 +151,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 isLuxury
                     ? 'Find luxury hotels, fine dining, and exclusive experiences.'
                     : isNight
-                        ? 'Find clubs, bars, rooftops, and late-night spots.'
-                        : 'Find activities, hotels, and restaurants for your next trip.',
+                    ? 'Find clubs, bars, rooftops, and late-night spots.'
+                    : 'Find activities, hotels, and restaurants for your next trip.',
                 style: TextStyle(
                   fontSize: 14,
                   color: secondaryTextColor,
@@ -122,7 +170,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       : const Color(0xFFF5F6FA),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isLuxury || isNight ? borderColor : Colors.transparent,
+                    color: isLuxury || isNight
+                        ? borderColor
+                        : Colors.transparent,
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -143,23 +193,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     hintText: isLuxury
                         ? 'Search villas, premium stays, or fine dining...'
                         : isNight
-                            ? 'Search clubs, bars, rooftops, or cities...'
-                            : 'Search city, hotel, food, activity...',
+                        ? 'Search clubs, bars, rooftops, or cities...'
+                        : 'Search city, hotel, food, activity...',
                     hintStyle: TextStyle(
                       color: isLuxury || isNight
                           ? const Color(0xFFB8B8B8)
                           : const Color(0xFFB0B7C3),
                       fontSize: 13,
                     ),
-                    prefixIcon: Icon(
-                      Icons.search,
-                      color: accentColor,
-                    ),
+                    prefixIcon: Icon(Icons.search, color: accentColor),
                     suffixIcon: searchText.isEmpty
-                        ? Icon(
-                            Icons.tune,
-                            color: accentColor,
-                          )
+                        ? Icon(Icons.tune, color: accentColor)
                         : IconButton(
                             onPressed: () {
                               searchController.clear();
@@ -167,16 +211,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 searchText = '';
                               });
                             },
-                            icon: Icon(
-                              Icons.close,
-                              color: accentColor,
-                            ),
+                            icon: Icon(Icons.close, color: accentColor),
                           ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 15),
                   ),
                   style: TextStyle(
-                    color: isLuxury || isNight ? Colors.white : const Color(0xFF111827),
+                    color: isLuxury || isNight
+                        ? Colors.white
+                        : const Color(0xFF111827),
                   ),
                 ),
               ),
@@ -184,84 +227,84 @@ class _ExploreScreenState extends State<ExploreScreen> {
               const SizedBox(height: 24),
 
               if (!isLuxury && !isNight) ...[
-              _SectionHeader(
-                title: 'Popular destinations',
-                actionText: 'See all',
-                isLuxury: isLuxury,
-              ),
-
-              const SizedBox(height: 14),
-
-              SizedBox(
-                height: 270,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _PopularDestinationCard(
-                      country: 'Italy',
-                      cityOne: 'Rome',
-                      cityTwo: 'Venice',
-                      cityThree: 'Milan',
-                      subtitle:
-                          'Historic cities, coastal escapes, and world-class food.',
-                      icon: '🇮🇹',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const DestinationDetailsScreen(
-                              destination: 'Italy',
-                              country: 'Europe',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    _PopularDestinationCard(
-                      country: 'Japan',
-                      cityOne: 'Tokyo',
-                      cityTwo: 'Kyoto',
-                      cityThree: 'Osaka',
-                      subtitle:
-                          'Temples, city lights, culture, and unforgettable food.',
-                      icon: '🇯🇵',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const DestinationDetailsScreen(
-                              destination: 'Japan',
-                              country: 'Asia',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    _PopularDestinationCard(
-                      country: 'Brazil',
-                      cityOne: 'Rio',
-                      cityTwo: 'Salvador',
-                      cityThree: 'Brasilia',
-                      subtitle:
-                          'Beaches, music, nature, and vibrant city life.',
-                      icon: '🇧🇷',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const DestinationDetailsScreen(
-                              destination: 'Brazil',
-                              country: 'South America',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                _SectionHeader(
+                  title: 'Popular destinations',
+                  actionText: 'See all',
+                  isLuxury: isLuxury,
                 ),
-              ),
 
-              const SizedBox(height: 28),
+                const SizedBox(height: 14),
+
+                SizedBox(
+                  height: 270,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _PopularDestinationCard(
+                        country: 'Italy',
+                        cityOne: 'Rome',
+                        cityTwo: 'Venice',
+                        cityThree: 'Milan',
+                        subtitle:
+                            'Historic cities, coastal escapes, and world-class food.',
+                        icon: '🇮🇹',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DestinationDetailsScreen(
+                                destination: 'Italy',
+                                country: 'Europe',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      _PopularDestinationCard(
+                        country: 'Japan',
+                        cityOne: 'Tokyo',
+                        cityTwo: 'Kyoto',
+                        cityThree: 'Osaka',
+                        subtitle:
+                            'Temples, city lights, culture, and unforgettable food.',
+                        icon: '🇯🇵',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DestinationDetailsScreen(
+                                destination: 'Japan',
+                                country: 'Asia',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      _PopularDestinationCard(
+                        country: 'Brazil',
+                        cityOne: 'Rio',
+                        cityTwo: 'Salvador',
+                        cityThree: 'Brasilia',
+                        subtitle:
+                            'Beaches, music, nature, and vibrant city life.',
+                        icon: '🇧🇷',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DestinationDetailsScreen(
+                                destination: 'Brazil',
+                                country: 'South America',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 28),
               ],
 
               if (isNight) ...[
@@ -321,8 +364,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 size: 16,
                                 color: isSelected
                                     ? isLuxury
-                                        ? const Color(0xFF111827)
-                                        : Colors.white
+                                          ? const Color(0xFF111827)
+                                          : Colors.white
                                     : secondaryTextColor,
                               ),
                               const SizedBox(width: 7),
@@ -331,8 +374,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 style: TextStyle(
                                   color: isSelected
                                       ? isLuxury
-                                          ? const Color(0xFF111827)
-                                          : Colors.white
+                                            ? const Color(0xFF111827)
+                                            : Colors.white
                                       : secondaryTextColor,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
@@ -352,10 +395,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   isLuxury && selectedType == 'Activities'
                       ? 'Exclusive activities'
                       : isLuxury && selectedType == 'Hotels'
-                          ? 'Luxury hotels'
-                          : isLuxury && selectedType == 'Restaurants'
-                              ? 'Fine dining'
-                              : selectedType,
+                      ? 'Luxury hotels'
+                      : isLuxury && selectedType == 'Restaurants'
+                      ? 'Fine dining'
+                      : selectedType,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
@@ -365,10 +408,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
                 const SizedBox(height: 14),
 
-                ..._getTypeCards(
-                  isLuxury: isLuxury,
-                  isNight: false,
-                ),
+                ..._getTypeCards(isLuxury: isLuxury, isNight: false),
               ],
             ],
           ),
@@ -383,10 +423,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return Icons.map_outlined;
   }
 
-  List<Widget> _getTypeCards({
-    required bool isLuxury,
-    required bool isNight,
-  }) {
+  List<Widget> _getTypeCards({required bool isLuxury, required bool isNight}) {
     final query = searchText.trim().toLowerCase();
 
     if (isNight) {
@@ -396,8 +433,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final matchesType = selectedType == 'Activities'
             ? place['type'] == 'activity'
             : selectedType == 'Hotels'
-                ? place['type'] == 'hotel'
-                : place['type'] == 'restaurant';
+            ? place['type'] == 'hotel'
+            : place['type'] == 'restaurant';
 
         final searchableText = [
           place['title'],
@@ -451,8 +488,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final matchesType = selectedType == 'Activities'
             ? place['type'] == 'activity'
             : selectedType == 'Hotels'
-                ? place['type'] == 'hotel'
-                : place['type'] == 'restaurant';
+            ? place['type'] == 'hotel'
+            : place['type'] == 'restaurant';
 
         final searchableText = [
           place['title'],
@@ -499,12 +536,21 @@ class _ExploreScreenState extends State<ExploreScreen> {
       }).toList();
     }
 
-    final filteredPlaces = SampleData.places.where((place) {
+    if (isLoadingPlaces) {
+      return const [
+        Padding(
+          padding: EdgeInsets.only(top: 20),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    final filteredPlaces = normalPlaces.where((place) {
       final matchesType = selectedType == 'Activities'
           ? place.type == 'activity'
           : selectedType == 'Hotels'
-              ? place.type == 'hotel'
-              : place.type == 'restaurant';
+          ? place.type == 'hotel'
+          : place.type == 'restaurant';
 
       final searchableText = [
         place.name,
@@ -520,9 +566,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
       return matchesType && matchesSearch;
     }).toList();
 
+    final cards = <Widget>[
+      if (placesError != null)
+        _ExploreErrorBanner(
+          message: 'Could not load live places. Showing saved places instead.',
+        ),
+    ];
+
     if (filteredPlaces.isEmpty) {
-      return const [
-        Padding(
+      cards.add(
+        const Padding(
           padding: EdgeInsets.only(top: 20),
           child: Center(
             child: Text(
@@ -535,24 +588,31 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ),
           ),
         ),
-      ];
+      );
+
+      return cards;
     }
 
-    return filteredPlaces.map((place) {
-      return _ExploreCard(
-        title: place.name,
-        location: '${place.city}, ${place.country}',
-        category: place.category,
-        price: '\$${place.cost.toStringAsFixed(0)}',
-        rating: place.rating.toStringAsFixed(1),
-        duration: place.type == 'hotel'
-            ? 'per night'
-            : '${place.durationHours.toStringAsFixed(1)}h',
-        icon: _getPlaceIcon(place),
-        isLuxury: false,
-        isNight: false,
-      );
-    }).toList();
+    cards.addAll(
+      filteredPlaces.map((place) {
+        return _ExploreCard(
+          title: place.name,
+          location: '${place.city}, ${place.country}',
+          category: place.category,
+          price: '\$${place.cost.toStringAsFixed(0)}',
+          rating: place.rating.toStringAsFixed(1),
+          duration: place.type == 'hotel'
+              ? 'per night'
+              : '${place.durationHours.toStringAsFixed(1)}h',
+          icon: _getPlaceIcon(place),
+          imageUrl: place.primaryThumbnailUrl ?? place.primaryImageUrl,
+          isLuxury: false,
+          isNight: false,
+        );
+      }),
+    );
+
+    return cards;
   }
 
   List<Widget> _getNightCards() {
@@ -780,6 +840,74 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 }
 
+class _ExploreErrorBanner extends StatelessWidget {
+  final String message;
+
+  const _ExploreErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.wifi_off_outlined,
+            color: Color(0xFFEA580C),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF9A3412),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExploreImagePlaceholder extends StatelessWidget {
+  final IconData icon;
+  final Color accentColor;
+
+  const _ExploreImagePlaceholder({
+    required this.icon,
+    required this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned(
+          right: -18,
+          bottom: -18,
+          child: Icon(
+            icon,
+            size: 95,
+            color: accentColor.withValues(alpha: 0.12),
+          ),
+        ),
+        Center(child: Icon(icon, size: 50, color: accentColor)),
+      ],
+    );
+  }
+}
+
 class _ExploreCard extends StatelessWidget {
   final String title;
   final String location;
@@ -788,6 +916,7 @@ class _ExploreCard extends StatelessWidget {
   final String rating;
   final String duration;
   final IconData icon;
+  final String? imageUrl;
   final bool isLuxury;
   final bool isNight;
 
@@ -799,6 +928,7 @@ class _ExploreCard extends StatelessWidget {
     required this.rating,
     required this.duration,
     required this.icon,
+    this.imageUrl,
     required this.isLuxury,
     required this.isNight,
   });
@@ -808,30 +938,31 @@ class _ExploreCard extends StatelessWidget {
     final cardColor = isLuxury
         ? const Color(0xFF0B1020)
         : isNight
-            ? const Color(0xFF111827)
-            : Colors.white;
+        ? const Color(0xFF111827)
+        : Colors.white;
     final imageBoxColor = isLuxury
         ? const Color(0xFF111827)
         : isNight
-            ? const Color(0xFF1E1B4B)
-            : const Color(0xFFE0F2FE);
+        ? const Color(0xFF1E1B4B)
+        : const Color(0xFFE0F2FE);
     final accentColor = isLuxury
         ? const Color(0xFFE8C766)
         : isNight
-            ? const Color(0xFFA855F7)
-            : const Color(0xFF2563EB);
-    final primaryTextColor =
-        isLuxury || isNight ? Colors.white : const Color(0xFF111827);
+        ? const Color(0xFFA855F7)
+        : const Color(0xFF2563EB);
+    final primaryTextColor = isLuxury || isNight
+        ? Colors.white
+        : const Color(0xFF111827);
     final secondaryTextColor = isLuxury
         ? const Color(0xFFB8B8B8)
         : isNight
-            ? const Color(0xFFB8B8D1)
-            : const Color(0xFF9CA3AF);
+        ? const Color(0xFFB8B8D1)
+        : const Color(0xFF9CA3AF);
     final priceColor = isLuxury
         ? const Color(0xFFE8C766)
         : isNight
-            ? const Color(0xFFEC4899)
-            : const Color(0xFF16A34A);
+        ? const Color(0xFFEC4899)
+        : const Color(0xFF16A34A);
 
     return Container(
       height: 148,
@@ -843,8 +974,8 @@ class _ExploreCard extends StatelessWidget {
           color: isLuxury
               ? const Color(0xFFE8C766).withOpacity(0.35)
               : isNight
-                  ? const Color(0xFFA855F7).withOpacity(0.35)
-                  : const Color(0xFFE5E7EB),
+              ? const Color(0xFFA855F7).withOpacity(0.35)
+              : const Color(0xFFE5E7EB),
         ),
         boxShadow: [
           BoxShadow(
@@ -864,26 +995,19 @@ class _ExploreCard extends StatelessWidget {
                 left: Radius.circular(22),
               ),
             ),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: -18,
-                  bottom: -18,
-                  child: Icon(
-                    icon,
-                    size: 95,
-                    color: accentColor.withOpacity(0.12),
+            clipBehavior: Clip.antiAlias,
+            child: imageUrl == null
+                ? _ExploreImagePlaceholder(icon: icon, accentColor: accentColor)
+                : Image.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return _ExploreImagePlaceholder(
+                        icon: icon,
+                        accentColor: accentColor,
+                      );
+                    },
                   ),
-                ),
-                Center(
-                  child: Icon(
-                    icon,
-                    size: 50,
-                    color: accentColor,
-                  ),
-                ),
-              ],
-            ),
           ),
           Expanded(
             child: Padding(
@@ -1044,148 +1168,145 @@ class _PopularDestinationCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-      width: 185,
-      margin: const EdgeInsets.only(right: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF38BDF8),
-            Color(0xFF2563EB),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+        width: 185,
+        margin: const EdgeInsets.only(right: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -20,
-            top: -20,
-            child: Icon(
-              Icons.public,
-              size: 120,
-              color: Colors.white.withOpacity(0.12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(15),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Icon(
+                Icons.public,
+                size: 120,
+                color: Colors.white.withOpacity(0.12),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(
+                      '$icon  $country',
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Text(
-                    '$icon  $country',
+                  const Spacer(),
+                  Text(
+                    country,
                     style: const TextStyle(
-                      color: Color(0xFF111827),
-                      fontSize: 12,
+                      color: Colors.white,
+                      fontSize: 25,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                ),
-                const Spacer(),
-                Text(
-                  country,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 25,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(height: 7),
+                  Text(
+                    subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  subtitle,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w500,
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _CityPill(text: cityOne),
+                      _CityPill(text: cityTwo),
+                      _CityPill(text: cityThree),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    _CityPill(text: cityOne),
-                    _CityPill(text: cityTwo),
-                    _CityPill(text: cityThree),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: const [
-                    Icon(
-                      Icons.account_balance_outlined,
-                      size: 13,
-                      color: Colors.white70,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'Culture',
-                      style: TextStyle(
+                  const SizedBox(height: 8),
+                  Row(
+                    children: const [
+                      Icon(
+                        Icons.account_balance_outlined,
+                        size: 13,
                         color: Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
                       ),
-                    ),
-                    SizedBox(width: 12),
-                    Icon(
-                      Icons.restaurant_outlined,
-                      size: 13,
-                      color: Colors.white70,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'Food',
-                      style: TextStyle(
+                      SizedBox(width: 4),
+                      Text(
+                        'Culture',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Icon(
+                        Icons.restaurant_outlined,
+                        size: 13,
                         color: Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
                       ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            right: 12,
-            top: 12,
-            child: Container(
-              height: 34,
-              width: 34,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.18),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withOpacity(0.7)),
-              ),
-              child: const Icon(
-                Icons.favorite_border,
-                color: Colors.white,
-                size: 19,
+                      SizedBox(width: 4),
+                      Text(
+                        'Food',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
-      ),
+            Positioned(
+              right: 12,
+              top: 12,
+              child: Container(
+                height: 34,
+                width: 34,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.7)),
+                ),
+                child: const Icon(
+                  Icons.favorite_border,
+                  color: Colors.white,
+                  size: 19,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1194,17 +1315,12 @@ class _PopularDestinationCard extends StatelessWidget {
 class _CityPill extends StatelessWidget {
   final String text;
 
-  const _CityPill({
-    required this.text,
-  });
+  const _CityPill({required this.text});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.22),
         borderRadius: BorderRadius.circular(14),
