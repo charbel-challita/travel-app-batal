@@ -30,6 +30,7 @@ async def list_travel_items(
     romantic: bool | None = None,
     adventure: bool | None = None,
     nightlife: bool | None = None,
+    include_images: bool = False,
     limit: int = Query(default=20, ge=1, le=100),
     service: TravelItemService = Depends(get_travel_item_service),
 ) -> TravelItemsListResponse:
@@ -45,6 +46,7 @@ async def list_travel_items(
         romantic=romantic,
         adventure=adventure,
         nightlife=nightlife,
+        include_images=include_images,
         limit=limit,
     )
     return TravelItemsListResponse(items=items, count=len(items))

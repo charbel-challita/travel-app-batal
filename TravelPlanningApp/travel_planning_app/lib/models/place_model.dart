@@ -12,7 +12,7 @@ class PlaceModel {
   final List<String> interestTags;
   final String? budgetLevel;
   final PlaceFlags? flags;
-  final List<String> images;
+  final List<PlaceImage> images;
 
   const PlaceModel({
     this.id,
@@ -48,13 +48,30 @@ class PlaceModel {
       flags: json['flags'] is Map<String, dynamic>
           ? PlaceFlags.fromApiJson(json['flags'] as Map<String, dynamic>)
           : null,
-      images: _readStringList(json['images']),
+      images: _readImages(json['images']),
     );
   }
 
   String get locationLabel => '$city, $country';
 
   String get priceLabel => '$currency ${cost.toStringAsFixed(0)}';
+
+  String? get primaryImageUrl {
+    for (final image in images) {
+      if (image.url != null) return image.url;
+    }
+    return null;
+  }
+
+  String? get primaryThumbnailUrl {
+    for (final image in images) {
+      final thumbnailUrl = image.thumbnailUrl ?? image.url;
+      if (thumbnailUrl != null) return thumbnailUrl;
+    }
+    return null;
+  }
+
+  bool get hasImage => primaryThumbnailUrl != null;
 
   String get durationLabel {
     if (type.toLowerCase() == 'hotel') {
@@ -82,6 +99,70 @@ class PlaceModel {
         .whereType<String>()
         .toList(growable: false);
   }
+
+  static List<PlaceImage> _readImages(dynamic value) {
+    if (value is! List) return const [];
+
+    return value
+        .map((item) {
+          if (item is String) {
+            final url = _readString(item);
+            return url == null ? null : PlaceImage(url: url);
+          }
+
+          if (item is Map) {
+            try {
+              return PlaceImage.fromApiJson(Map<String, dynamic>.from(item));
+            } on TypeError {
+              return null;
+            }
+          }
+
+          return null;
+        })
+        .whereType<PlaceImage>()
+        .where((image) => image.hasAnyValue)
+        .toList(growable: false);
+  }
+}
+
+class PlaceImage {
+  final String? url;
+  final String? thumbnailUrl;
+  final String? source;
+  final String? alt;
+  final String? photographer;
+  final String? sourceUrl;
+
+  const PlaceImage({
+    this.url,
+    this.thumbnailUrl,
+    this.source,
+    this.alt,
+    this.photographer,
+    this.sourceUrl,
+  });
+
+  factory PlaceImage.fromApiJson(Map<String, dynamic> json) {
+    return PlaceImage(
+      url: PlaceModel._readString(json['url']),
+      thumbnailUrl:
+          PlaceModel._readString(json['thumbnail_url'] ?? json['thumbnailUrl']),
+      source: PlaceModel._readString(json['source']),
+      alt: PlaceModel._readString(json['alt']),
+      photographer: PlaceModel._readString(json['photographer']),
+      sourceUrl:
+          PlaceModel._readString(json['source_url'] ?? json['sourceUrl']),
+    );
+  }
+
+  bool get hasAnyValue =>
+      url != null ||
+      thumbnailUrl != null ||
+      source != null ||
+      alt != null ||
+      photographer != null ||
+      sourceUrl != null;
 }
 
 class PlaceFlags {

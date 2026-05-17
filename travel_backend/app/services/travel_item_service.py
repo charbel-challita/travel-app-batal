@@ -1,8 +1,10 @@
 import re
 from typing import Any
 
+from app.core.config import get_settings
 from app.repositories.travel_item_repository import TravelItemRepository
 from app.schemas.travel_item import FeaturedTravelItemsResponse, TravelItemResponse, TravelItemsSearchResponse
+from app.services.image_service import ImageService
 from app.utils.object_id import object_id_to_str
 
 
@@ -25,8 +27,9 @@ def parse_interests(value: str | None) -> list[str]:
 
 
 class TravelItemService:
-    def __init__(self, repository: TravelItemRepository):
+    def __init__(self, repository: TravelItemRepository, image_service: ImageService | None = None):
         self.repository = repository
+        self.image_service = image_service or ImageService(get_settings())
 
     async def list_travel_items(
         self,
@@ -43,6 +46,7 @@ class TravelItemService:
         adventure: bool | None = None,
         nightlife: bool | None = None,
         limit: int = DEFAULT_LIMIT,
+        include_images: bool = False,
     ) -> list[TravelItemResponse]:
         query = self._build_query(
             country=country,
@@ -58,6 +62,8 @@ class TravelItemService:
             nightlife=nightlife,
         )
         documents = await self.repository.find_travel_items(query, self._clean_limit(limit))
+        if include_images:
+            documents = await self._enrich_documents_with_images(documents)
         return [self._to_response(document) for document in documents]
 
     async def search_travel_items(
@@ -189,6 +195,32 @@ class TravelItemService:
         if limit < 1:
             return default
         return min(limit, maximum)
+
+    async def _enrich_documents_with_images(self, documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for document in documents:
+            if self._has_usable_images(document.get("images")):
+                continue
+
+            images = await self.image_service.fetch_images_for_item(document)
+            if not images:
+                document["images"] = []
+                continue
+
+            await self.repository.update_travel_item_images(document["_id"], images)
+            document["images"] = images
+
+        return documents
+
+    def _has_usable_images(self, images: Any) -> bool:
+        if not isinstance(images, list):
+            return False
+
+        for image in images:
+            if isinstance(image, str) and image.strip():
+                return True
+            if isinstance(image, dict) and str(image.get("url") or "").strip():
+                return True
+        return False
 
     def _to_response(self, document: dict[str, Any]) -> TravelItemResponse:
         return TravelItemResponse(

@@ -1,5 +1,8 @@
 from typing import Any
 
+from datetime import datetime, timezone
+
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 
@@ -30,3 +33,20 @@ class TravelItemRepository:
             .limit(limit)
         )
         return await cursor.to_list(length=limit)
+
+    async def update_travel_item_images(self, item_id: Any, images: list[dict[str, Any]]) -> bool:
+        try:
+            object_id = item_id if isinstance(item_id, ObjectId) else ObjectId(str(item_id))
+        except Exception:
+            return False
+
+        result = await self.collection.update_one(
+            {"_id": object_id},
+            {
+                "$set": {
+                    "images": images,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+        return result.modified_count > 0
