@@ -81,6 +81,8 @@ class TravelItemService:
         q: str,
         include_images: bool = False,
         limit: int = DEFAULT_LIMIT,
+        country: str | None = None,
+        city: str | None = None,
         type: str | None = None,
         category: str | None = None,
         budget_level: str | None = None,
@@ -93,6 +95,8 @@ class TravelItemService:
     ) -> TravelItemsSearchResponse:
         normalized_query = normalize_text(q)
         filters = self._build_filter_query(
+            country=country,
+            city=city,
             type=type,
             category=category,
             budget_level=budget_level,
@@ -121,6 +125,8 @@ class TravelItemService:
         *,
         q: str,
         limit: int = SUGGESTIONS_DEFAULT_LIMIT,
+        country: str | None = None,
+        city: str | None = None,
         type: str | None = None,
         category: str | None = None,
         budget_level: str | None = None,
@@ -146,6 +152,8 @@ class TravelItemService:
 
         prefix_filter = self._build_suggestion_prefix_filter(normalized_query)
         filters = self._build_filter_query(
+            country=country,
+            city=city,
             type=type,
             category=category,
             budget_level=budget_level,
@@ -287,6 +295,8 @@ class TravelItemService:
     def _build_filter_query(
         self,
         *,
+        country: str | None,
+        city: str | None,
         type: str | None,
         category: str | None,
         budget_level: str | None,
@@ -299,6 +309,10 @@ class TravelItemService:
     ) -> dict[str, Any]:
         filters: dict[str, Any] = {}
 
+        if country:
+            filters["country_normalized"] = normalize_text(country)
+        if city:
+            filters["city_normalized"] = normalize_text(city)
         if type:
             normalized_type = normalize_text(type)
             if normalized_type in ALLOWED_TYPES:
@@ -336,11 +350,7 @@ class TravelItemService:
         return {
             "is_active": True,
             **filters,
-            "$or": [
-                {"name_normalized": regex_filter},
-                {"country_normalized": regex_filter},
-                {"city_normalized": regex_filter},
-            ],
+            "name_normalized": regex_filter,
         }
 
     def _build_suggestion_prefix_filter(self, query_text: str) -> dict[str, Any]:

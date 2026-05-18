@@ -65,6 +65,8 @@ async def list_travel_items(
 async def suggest_travel_items(
     q: str = Query(..., min_length=1),
     limit: int = Query(default=5, ge=1),
+    country: str | None = None,
+    city: str | None = None,
     type: str | None = Query(
         default=None,
         pattern="^(activity|hotel|restaurant|nightlife)$",
@@ -85,6 +87,8 @@ async def suggest_travel_items(
     return await service.suggest_travel_items(
         q=q,
         limit=limit,
+        country=country,
+        city=city,
         type=type,
         category=category,
         budget_level=budget_level,
@@ -102,6 +106,8 @@ async def search_travel_items(
     q: str = Query(..., min_length=1),
     include_images: bool = False,
     limit: int = Query(default=20, ge=1, le=100),
+    country: str | None = None,
+    city: str | None = None,
     type: str | None = Query(
         default=None,
         pattern="^(activity|hotel|restaurant|nightlife)$",
@@ -125,6 +131,8 @@ async def search_travel_items(
         q=q,
         include_images=include_images,
         limit=limit,
+        country=country,
+        city=city,
         type=type,
         category=category,
         budget_level=budget_level,

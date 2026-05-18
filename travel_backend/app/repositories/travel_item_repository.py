@@ -141,11 +141,7 @@ class TravelItemRepository:
                 "$match": {
                     "is_active": True,
                     **filters,
-                    "$or": [
-                        {"name_normalized": prefix_filter},
-                        {"city_normalized": prefix_filter},
-                        {"country_normalized": prefix_filter},
-                    ],
+                    "name_normalized": prefix_filter,
                 }
             },
             {

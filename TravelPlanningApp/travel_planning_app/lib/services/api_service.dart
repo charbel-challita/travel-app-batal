@@ -154,6 +154,8 @@ class ApiService {
 
   Future<List<TravelItemSuggestion>> getTravelItemSuggestions({
     required String query,
+    String? country,
+    String? city,
     String? type,
     String? category,
     String? budgetLevel,
@@ -188,6 +190,8 @@ class ApiService {
       }
     }
 
+    addString('country', country);
+    addString('city', city);
     addString('type', type);
     addString('category', category);
     addString('budget_level', budgetLevel);
@@ -250,6 +254,8 @@ class ApiService {
 
   Future<List<PlaceModel>> searchTravelItems({
     required String query,
+    String? country,
+    String? city,
     String? type,
     String? category,
     String? budgetLevel,
@@ -285,6 +291,8 @@ class ApiService {
       }
     }
 
+    addString('country', country);
+    addString('city', city);
     addString('type', type);
     addString('category', category);
     addString('budget_level', budgetLevel);
