@@ -57,6 +57,35 @@ class TravelItemSuggestion {
   }
 }
 
+class AiPackageSuggestion {
+  final String label;
+  final String value;
+  final String packageId;
+  final String city;
+  final String country;
+  final String mode;
+
+  const AiPackageSuggestion({
+    required this.label,
+    required this.value,
+    required this.packageId,
+    required this.city,
+    required this.country,
+    required this.mode,
+  });
+
+  factory AiPackageSuggestion.fromJson(Map<String, dynamic> json) {
+    return AiPackageSuggestion(
+      label: json['label']?.toString() ?? '',
+      value: json['value']?.toString() ?? '',
+      packageId: json['package_id']?.toString() ?? '',
+      city: json['city']?.toString() ?? '',
+      country: json['country']?.toString() ?? '',
+      mode: json['mode']?.toString() ?? 'Casual',
+    );
+  }
+}
+
 class _FriendlyApiException implements Exception {
   final String message;
 
@@ -384,6 +413,10 @@ class ApiService {
 
   Future<List<AiPackageModel>> getAiPackages({
     String? mode,
+    String? query,
+    List<String>? interests,
+    String? city,
+    String? country,
     int limit = 20,
   }) async {
     final safeLimit = limit.clamp(1, 50);
@@ -394,6 +427,18 @@ class ApiService {
 
     if (mode != null && mode.isNotEmpty) {
       queryParameters['mode'] = mode;
+    }
+    if (query != null && query.trim().isNotEmpty) {
+      queryParameters['q'] = query.trim();
+    }
+    if (interests != null && interests.isNotEmpty) {
+      queryParameters['interests'] = interests.join(',');
+    }
+    if (city != null && city.trim().isNotEmpty) {
+      queryParameters['city'] = city.trim();
+    }
+    if (country != null && country.trim().isNotEmpty) {
+      queryParameters['country'] = country.trim();
     }
 
     final uri = Uri.parse(
@@ -436,6 +481,80 @@ class ApiService {
           }
 
           return AiPackageModel.fromJson(Map<String, dynamic>.from(item));
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<AiPackageSuggestion>> getAiPackageSuggestions({
+    String? mode,
+    required String query,
+    List<String>? interests,
+    int limit = 5,
+  }) async {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.length < 2) {
+      return [];
+    }
+
+    final safeLimit = limit < 1 ? 5 : limit.clamp(1, 5);
+    final queryParameters = <String, String>{
+      'q': trimmedQuery,
+      'limit': safeLimit.toString(),
+    };
+
+    if (mode != null && mode.isNotEmpty) {
+      queryParameters['mode'] = mode;
+    }
+    if (interests != null && interests.isNotEmpty) {
+      queryParameters['interests'] = interests.join(',');
+    }
+
+    final uri = Uri.parse(
+      '$baseUrl/ai-packages/suggestions',
+    ).replace(queryParameters: queryParameters);
+
+    final response = await _client.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load AI package suggestions. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException catch (error) {
+      throw Exception(
+        'Invalid JSON response from AI package suggestions API: $error',
+      );
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'Invalid AI package suggestions response: expected a JSON object.',
+      );
+    }
+
+    final suggestions = decoded['suggestions'];
+    if (suggestions is! List) {
+      throw Exception(
+        'Invalid AI package suggestions response: "suggestions" is missing or is not a list.',
+      );
+    }
+
+    return suggestions
+        .map((suggestion) {
+          if (suggestion is! Map) {
+            throw Exception(
+              'Invalid AI package suggestions response: suggestion is not a JSON object.',
+            );
+          }
+
+          return AiPackageSuggestion.fromJson(
+            Map<String, dynamic>.from(suggestion),
+          );
         })
         .toList(growable: false);
   }

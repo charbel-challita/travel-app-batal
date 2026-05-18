@@ -1,9 +1,8 @@
-import 'dart:math';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../models/ai_package_model.dart';
-import '../models/place_model.dart';
 import '../services/api_service.dart';
 import 'destination_details_screen.dart';
 
@@ -25,13 +24,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
+  final TextEditingController _searchController = TextEditingController();
 
   List<AiPackageModel> aiPackages = [];
+  List<AiPackageSuggestion> packageSuggestions = [];
   bool isLoadingPackages = false;
+  bool isLoadingSuggestions = false;
   String? packagesError;
-  List<PlaceModel> nightClubs = [];
-  bool isLoadingNightClubs = false;
-  String? nightClubsError;
+  String? selectedInterest;
+  Timer? _searchDebounce;
 
   static const _luxuryBackground = Color(0xFF030303);
   static const _luxuryCard = Color(0xFF0B1020);
@@ -46,12 +47,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadAiPackages();
+  }
 
-    if (widget.selectedMode == 'Night') {
-      _loadNightClubs();
-    } else {
-      _loadAiPackages();
-    }
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -59,15 +62,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.selectedMode != widget.selectedMode) {
-      if (widget.selectedMode == 'Night') {
-        _loadNightClubs();
-      } else {
-        _loadAiPackages();
-      }
+      selectedInterest = null;
+      packageSuggestions = [];
+      _loadAiPackages();
+      _loadSuggestions();
     }
   }
 
   Future<void> _loadAiPackages() async {
+    final query = _searchController.text.trim();
+    final interests = selectedInterest == null ? null : [selectedInterest!];
+
     setState(() {
       isLoadingPackages = true;
       packagesError = null;
@@ -76,6 +81,8 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final packages = await _apiService.getAiPackages(
         mode: widget.selectedMode,
+        query: query.isEmpty ? null : query,
+        interests: interests,
         limit: 10,
       );
 
@@ -96,34 +103,239 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadNightClubs() async {
+  void _queueSearch(String value) {
+    setState(() {});
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _loadAiPackages();
+      _loadSuggestions();
+    });
+  }
+
+  Future<void> _loadSuggestions() async {
+    final query = _searchController.text.trim();
+    if (query.length < 2) {
+      if (!mounted) return;
+
+      setState(() {
+        packageSuggestions = [];
+        isLoadingSuggestions = false;
+      });
+      return;
+    }
+
     setState(() {
-      isLoadingNightClubs = true;
-      nightClubsError = null;
+      isLoadingSuggestions = true;
     });
 
     try {
-      final clubs = await _apiService.getTravelItems(
-        type: 'nightlife',
-        includeImages: true,
-        limit: 10,
+      final suggestions = await _apiService.getAiPackageSuggestions(
+        mode: widget.selectedMode,
+        query: query,
+        interests: selectedInterest == null ? null : [selectedInterest!],
+        limit: 5,
       );
 
       if (!mounted) return;
 
       setState(() {
-        nightClubs = clubs;
-        isLoadingNightClubs = false;
+        packageSuggestions = suggestions;
+        isLoadingSuggestions = false;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
-        nightClubs = [];
-        nightClubsError = error.toString();
-        isLoadingNightClubs = false;
+        packageSuggestions = [];
+        isLoadingSuggestions = false;
       });
     }
+  }
+
+  void _selectSuggestion(AiPackageSuggestion suggestion) {
+    _searchDebounce?.cancel();
+    _searchController.text = suggestion.value;
+    setState(() {
+      packageSuggestions = [];
+    });
+    _loadAiPackages();
+  }
+
+  void _toggleInterest(String interest) {
+    setState(() {
+      selectedInterest = selectedInterest == interest ? null : interest;
+      packageSuggestions = [];
+    });
+    _loadAiPackages();
+    _loadSuggestions();
+  }
+
+  List<String> _interestOptions() {
+    if (widget.selectedMode == 'Luxury') {
+      return ['Private', 'Fine dining', 'Scenic flights', 'Exclusive stays'];
+    }
+    if (widget.selectedMode == 'Night') {
+      return ['Clubs', 'Bars', 'Rooftops', 'Live music'];
+    }
+    return ['Nature', 'Adventure', 'Culture', 'Beach'];
+  }
+
+  IconData _interestIcon(String interest) {
+    switch (interest) {
+      case 'Private':
+        return Icons.lock_outline;
+      case 'Fine dining':
+        return Icons.restaurant_menu;
+      case 'Scenic flights':
+        return Icons.flight_takeoff;
+      case 'Exclusive stays':
+        return Icons.villa_outlined;
+      case 'Clubs':
+        return Icons.nightlife;
+      case 'Bars':
+        return Icons.local_bar;
+      case 'Rooftops':
+        return Icons.apartment;
+      case 'Live music':
+        return Icons.music_note;
+      case 'Nature':
+        return Icons.park;
+      case 'Adventure':
+        return Icons.hiking;
+      case 'Culture':
+        return Icons.account_balance;
+      case 'Beach':
+        return Icons.beach_access;
+      default:
+        return Icons.label_outline;
+    }
+  }
+
+  String _packageSubtitle(AiPackageModel package) {
+    final location = [
+      package.city,
+      package.country,
+    ].where((value) => value.trim().isNotEmpty).join(', ');
+
+    if (location.isNotEmpty) {
+      return location;
+    }
+
+    return package.subtitle;
+  }
+
+  String _packageTag(AiPackageModel package) {
+    if (selectedInterest != null) {
+      return selectedInterest!;
+    }
+    if (package.tag.trim().isNotEmpty) {
+      return package.tag;
+    }
+    return widget.selectedMode;
+  }
+
+  void _openPackage(AiPackageModel package) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DestinationDetailsScreen(
+          destination: package.title,
+          country: package.country,
+          selectedMode: widget.selectedMode,
+          package: package,
+        ),
+      ),
+    );
+  }
+
+  void _showFilterSheet() {
+    final isLuxury = widget.selectedMode == 'Luxury';
+    final isNight = widget.selectedMode == 'Night';
+    final options = _interestOptions();
+    final accentColor = isLuxury
+        ? _luxuryGold
+        : isNight
+            ? _nightPurple
+            : const Color(0xFF2563EB);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isLuxury || isNight ? const Color(0xFF111827) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${widget.selectedMode} package filters',
+                  style: TextStyle(
+                    color: isLuxury || isNight ? Colors.white : const Color(0xFF111827),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: options.map((option) {
+                    final selected = selectedInterest == option;
+                    return ChoiceChip(
+                      label: Text(option),
+                      avatar: Icon(
+                        _interestIcon(option),
+                        size: 16,
+                        color: selected
+                            ? Colors.white
+                            : isLuxury || isNight
+                                ? accentColor
+                                : const Color(0xFF2563EB),
+                      ),
+                      selected: selected,
+                      onSelected: (_) {
+                        Navigator.pop(context);
+                        _toggleInterest(option);
+                      },
+                      selectedColor: accentColor,
+                      backgroundColor: isLuxury || isNight
+                          ? const Color(0xFF0B1020)
+                          : const Color(0xFFEFF6FF),
+                      labelStyle: TextStyle(
+                        color: selected
+                            ? Colors.white
+                            : isLuxury || isNight
+                                ? Colors.white
+                                : const Color(0xFF2563EB),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (selectedInterest != null) ...[
+                  const SizedBox(height: 14),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _toggleInterest(selectedInterest!);
+                    },
+                    child: Text(
+                      'Clear filter',
+                      style: TextStyle(color: accentColor),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -190,58 +402,190 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 18),
 
-              Container(
-                height: 50,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: isLuxury
-                      ? _luxuryCard
-                      : isNight
-                          ? _nightCard
-                          : const Color(0xFFF5F6FA),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isLuxury
-                        ? _luxuryGold.withOpacity(0.35)
-                        : isNight
-                            ? _nightPurple.withOpacity(0.35)
-                            : Colors.transparent,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: shadowColor,
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.search, color: accentColor),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        isLuxury
-                            ? 'Search private tours, villas, or premium stays...'
+              Column(
+                children: [
+                  Container(
+                    height: 50,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: isLuxury
+                          ? _luxuryCard
+                          : isNight
+                              ? _nightCard
+                              : const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isLuxury
+                            ? _luxuryGold.withOpacity(0.35)
                             : isNight
-                                ? 'Search clubs, bars, or cities...'
-                                : 'Search cities, packages, or interests...',
-                        style: TextStyle(
-                          color: isLuxury || isNight
-                              ? secondaryTextColor
-                              : const Color(0xFFB0B7C3),
-                          fontSize: 13,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                                ? _nightPurple.withOpacity(0.35)
+                                : Colors.transparent,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: shadowColor,
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    Icon(
-                      Icons.tune,
-                      color: isLuxury || isNight ? accentColor : const Color(0xFF9CA3AF),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search, color: accentColor),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: _queueSearch,
+                            onSubmitted: (_) {
+                              _searchDebounce?.cancel();
+                              setState(() {
+                                packageSuggestions = [];
+                              });
+                              _loadAiPackages();
+                            },
+                            style: TextStyle(
+                              color: isLuxury || isNight
+                                  ? Colors.white
+                                  : const Color(0xFF111827),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            cursorColor: accentColor,
+                            decoration: InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: isLuxury
+                                  ? 'Search private tours, villas, or premium stays...'
+                                  : isNight
+                                      ? 'Search clubs, bars, or cities...'
+                                      : 'Search cities, packages, or interests...',
+                              hintStyle: TextStyle(
+                                color: isLuxury || isNight
+                                    ? secondaryTextColor
+                                    : const Color(0xFFB0B7C3),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_searchController.text.trim().isNotEmpty)
+                          IconButton(
+                            tooltip: 'Clear search',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
+                            onPressed: () {
+                              _searchDebounce?.cancel();
+                              _searchController.clear();
+                              setState(() {
+                                packageSuggestions = [];
+                              });
+                              _loadAiPackages();
+                            },
+                            icon: Icon(
+                              Icons.close,
+                              size: 18,
+                              color: isLuxury || isNight
+                                  ? secondaryTextColor
+                                  : const Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        IconButton(
+                          tooltip: 'Filter packages',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          onPressed: _showFilterSheet,
+                          icon: Icon(
+                            Icons.tune,
+                            color: isLuxury || isNight
+                                ? accentColor
+                                : const Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  if (packageSuggestions.isNotEmpty || isLoadingSuggestions)
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      decoration: BoxDecoration(
+                        color: isLuxury || isNight
+                            ? const Color(0xFF111827)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isLuxury
+                              ? _luxuryGold.withOpacity(0.35)
+                              : isNight
+                                  ? _nightPurple.withOpacity(0.35)
+                                  : const Color(0xFFE5E7EB),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: shadowColor,
+                            blurRadius: 10,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: isLoadingSuggestions
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : Column(
+                              children: packageSuggestions.map((suggestion) {
+                                final location = [
+                                  suggestion.city,
+                                  suggestion.country,
+                                ]
+                                    .where((value) => value.trim().isNotEmpty)
+                                    .join(', ');
+
+                                return ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    Icons.travel_explore,
+                                    color: accentColor,
+                                  ),
+                                  title: Text(
+                                    suggestion.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isLuxury || isNight
+                                          ? Colors.white
+                                          : const Color(0xFF111827),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: location.isEmpty
+                                      ? null
+                                      : Text(
+                                          location,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: secondaryTextColor,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                  onTap: () => _selectSuggestion(suggestion),
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                ],
               ),
 
               const SizedBox(height: 22),
@@ -410,64 +754,16 @@ class _HomeScreenState extends State<HomeScreen> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: [
-                    _InterestChip(
-                      text: isLuxury
-                          ? 'Private'
-                          : isNight
-                              ? 'Clubs'
-                              : 'Nature',
-                      icon: isLuxury
-                          ? Icons.lock_outline
-                          : isNight
-                              ? Icons.nightlife
-                              : Icons.park,
+                  children: _interestOptions().map((interest) {
+                    return _InterestChip(
+                      text: interest,
+                      icon: _interestIcon(interest),
+                      isSelected: selectedInterest == interest,
                       isLuxury: isLuxury,
                       isNight: isNight,
-                    ),
-                    _InterestChip(
-                      text: isLuxury
-                          ? 'Fine dining'
-                          : isNight
-                              ? 'Bars'
-                              : 'Adventure',
-                      icon: isLuxury
-                          ? Icons.restaurant_menu
-                          : isNight
-                              ? Icons.local_bar
-                              : Icons.hiking,
-                      isLuxury: isLuxury,
-                      isNight: isNight,
-                    ),
-                    _InterestChip(
-                      text: isLuxury
-                          ? 'Scenic flights'
-                          : isNight
-                              ? 'Rooftops'
-                              : 'Culture',
-                      icon: isLuxury
-                          ? Icons.flight_takeoff
-                          : isNight
-                              ? Icons.apartment
-                              : Icons.account_balance,
-                      isLuxury: isLuxury,
-                      isNight: isNight,
-                    ),
-                    _InterestChip(
-                      text: isLuxury
-                          ? 'Exclusive stays'
-                          : isNight
-                              ? 'Live music'
-                              : 'Beach',
-                      icon: isLuxury
-                          ? Icons.villa_outlined
-                          : isNight
-                              ? Icons.music_note
-                              : Icons.beach_access,
-                      isLuxury: isLuxury,
-                      isNight: isNight,
-                    ),
-                  ],
+                      onTap: () => _toggleInterest(interest),
+                    );
+                  }).toList(),
                 ),
               ),
 
@@ -482,16 +778,54 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 14),
 
-              _SuggestedCard(
-                isLuxury: isLuxury,
-                isNight: isNight,
-                selectedMode: widget.selectedMode,
-              ),
+              if (isLoadingPackages && aiPackages.isEmpty)
+                const SizedBox(
+                  height: 150,
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (packagesError != null && aiPackages.isEmpty)
+                SizedBox(
+                  height: 120,
+                  child: Center(
+                    child: Text(
+                      'Could not load packages.',
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                )
+              else if (aiPackages.isNotEmpty)
+                _SuggestedPackageCard(
+                  package: aiPackages.first,
+                  tag: _packageTag(aiPackages.first),
+                  isLuxury: isLuxury,
+                  isNight: isNight,
+                  onTap: () => _openPackage(aiPackages.first),
+                )
+              else
+                SizedBox(
+                  height: 120,
+                  child: Center(
+                    child: Text(
+                      'No ${widget.selectedMode.toLowerCase()} packages found.',
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
 
               const SizedBox(height: 26),
 
               _SectionHeader(
-                title: isNight ? 'Most popular clubs' : 'Ready-made packages',
+                title: 'Ready-made packages',
                 actionText: 'See all',
                 isLuxury: isLuxury,
                 isNight: isNight,
@@ -499,11 +833,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 14),
 
-              if (isNight)
-                _buildNightClubsSection(
-                  secondaryTextColor: secondaryTextColor,
-                )
-              else if (isLoadingPackages)
+              if (isLoadingPackages && aiPackages.isNotEmpty)
                 const SizedBox(
                   height: 220,
                   child: Center(
@@ -545,25 +875,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: aiPackages.map((package) {
                       return _PackageCard(
                         title: package.title,
-                        subtitle: package.subtitle,
+                        subtitle: _packageSubtitle(package),
                         price: '\$${package.price.toStringAsFixed(0)}',
                         rating: package.rating.toStringAsFixed(1),
-                        tag: package.tag,
+                        tag: _packageTag(package),
                         imageAsset: package.imageAsset,
                         imageUrl: package.imageUrl,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DestinationDetailsScreen(
-                                destination: package.title,
-                                country: package.country,
-                                selectedMode: widget.selectedMode,
-                                package: package,
-                              ),
-                            ),
-                          );
-                        },
+                        onTap: () => _openPackage(package),
                         isLuxury: isLuxury,
                         isNight: isNight,
                       );
@@ -577,81 +895,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNightClubsSection({
-    required Color secondaryTextColor,
-  }) {
-    if (isLoadingNightClubs) {
-      return const SizedBox(
-        height: 220,
-        child: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (nightClubsError != null && nightClubs.isEmpty) {
-      return SizedBox(
-        height: 120,
-        child: Center(
-          child: Text(
-            'Could not load clubs.',
-            style: TextStyle(
-              color: secondaryTextColor,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (nightClubs.isEmpty) {
-      return SizedBox(
-        height: 120,
-        child: Center(
-          child: Text(
-            'No clubs found.',
-            style: TextStyle(
-              color: secondaryTextColor,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: nightClubs.take(10).map((club) {
-          return _PackageCard(
-            title: club.name,
-            subtitle: '${club.city}, ${club.country}',
-            price: '\$${club.cost.toStringAsFixed(0)}',
-            rating: club.rating.toStringAsFixed(1),
-            tag: club.category.isNotEmpty ? club.category : 'Nightlife',
-            imageUrl: club.primaryThumbnailUrl ?? club.primaryImageUrl,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DestinationDetailsScreen(
-                    destination: club.name,
-                    country: club.country,
-                    selectedMode: widget.selectedMode,
-                    place: club,
-                  ),
-                ),
-              );
-            },
-            isLuxury: false,
-            isNight: true,
-          );
-        }).toList(),
-      ),
-    );
-  }
 }
 
 class _ModeButton extends StatelessWidget {
@@ -747,57 +990,81 @@ class _ModeButton extends StatelessWidget {
 class _InterestChip extends StatelessWidget {
   final String text;
   final IconData icon;
+  final bool isSelected;
   final bool isLuxury;
   final bool isNight;
+  final VoidCallback onTap;
 
   const _InterestChip({
     required this.text,
     required this.icon,
+    required this.isSelected,
     required this.isLuxury,
     required this.isNight,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(right: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-      decoration: BoxDecoration(
-        color: isLuxury || isNight ? const Color(0xFF111827) : const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isLuxury
-              ? const Color(0xFFE8C766).withOpacity(0.45)
-              : isNight
-                  ? const Color(0xFFA855F7).withOpacity(0.35)
-                  : const Color(0xFFBFDBFE),
+    final accentColor = isLuxury
+        ? const Color(0xFFE8C766)
+        : isNight
+            ? const Color(0xFFE879F9)
+            : const Color(0xFF2563EB);
+    final selectedBackground = isLuxury
+        ? const Color(0xFFE8C766)
+        : isNight
+            ? const Color(0xFFA855F7)
+            : const Color(0xFF2563EB);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? selectedBackground
+              : isLuxury || isNight
+                  ? const Color(0xFF111827)
+                  : const Color(0xFFEFF6FF),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isSelected
+                ? selectedBackground
+                : isLuxury
+                    ? const Color(0xFFE8C766).withOpacity(0.45)
+                    : isNight
+                        ? const Color(0xFFA855F7).withOpacity(0.35)
+                        : const Color(0xFFBFDBFE),
+          ),
         ),
-      ),
-            child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 15,
-            color: isLuxury
-                ? const Color(0xFFE8C766)
-                : isNight
-                    ? const Color(0xFFE879F9)
-                    : const Color(0xFF2563EB),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(
-              color: isLuxury
-                  ? const Color(0xFFE8C766)
-                  : isNight
-                      ? const Color(0xFFE879F9)
-                      : const Color(0xFF2563EB),
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: isSelected
+                  ? isLuxury
+                      ? const Color(0xFF111827)
+                      : Colors.white
+                  : accentColor,
             ),
-          ),
-        ],
+            const SizedBox(width: 6),
+            Text(
+              text,
+              style: TextStyle(
+                color: isSelected
+                    ? isLuxury
+                        ? const Color(0xFF111827)
+                        : Colors.white
+                    : accentColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -833,168 +1100,35 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _SuggestedCard extends StatefulWidget {
+class _SuggestedPackageCard extends StatelessWidget {
+  final AiPackageModel package;
+  final String tag;
   final bool isLuxury;
   final bool isNight;
-  final String selectedMode;
+  final VoidCallback onTap;
 
-  const _SuggestedCard({
+  const _SuggestedPackageCard({
+    required this.package,
+    required this.tag,
     required this.isLuxury,
     required this.isNight,
-    required this.selectedMode,
+    required this.onTap,
   });
 
   @override
-  State<_SuggestedCard> createState() => _SuggestedCardState();
-}
-
-class _SuggestedCardState extends State<_SuggestedCard> {
-  final ApiService _apiService = ApiService();
-
-  PlaceModel? suggestedPlace;
-  bool isLoading = false;
-  bool hasError = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSuggestedPlace();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SuggestedCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.selectedMode != widget.selectedMode) {
-      _loadSuggestedPlace();
-    }
-  }
-
-  Future<void> _loadSuggestedPlace() async {
-    setState(() {
-      isLoading = true;
-      hasError = false;
-    });
-
-    try {
-      final places = await _apiService.getTravelItems(
-        type: widget.isNight ? 'nightlife' : null,
-        budgetLevel: widget.isLuxury ? 'luxury' : null,
-        includeImages: true,
-        limit: 20,
-      );
-
-      if (!mounted) return;
-
-      if (places.isEmpty) {
-        setState(() {
-          suggestedPlace = null;
-          isLoading = false;
-          hasError = true;
-        });
-        return;
-      }
-
-      final randomPlace = places[Random().nextInt(places.length)];
-
-      setState(() {
-        suggestedPlace = randomPlace;
-        isLoading = false;
-        hasError = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        suggestedPlace = null;
-        isLoading = false;
-        hasError = true;
-      });
-    }
-  }
-
-  void _openDetails(BuildContext context) {
-    final place = suggestedPlace;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DestinationDetailsScreen(
-          destination: place?.name ??
-              (widget.isLuxury
-                  ? 'Private Bavarian Alps Tour'
-                  : widget.isNight
-                      ? 'Just Cavalli Club'
-                      : 'Island Escape Getaway'),
-          country: place?.country ??
-              (widget.isLuxury
-                  ? 'Germany'
-                  : widget.isNight
-                      ? 'UAE'
-                      : 'Indonesia'),
-          selectedMode: widget.selectedMode,
-          place: place,
-        ),
-      ),
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final isLuxury = widget.isLuxury;
-    final isNight = widget.isNight;
-    final place = suggestedPlace;
-
-    final title = place?.name ??
-        (isLuxury
-            ? 'Private Bavarian Alps Tour'
-            : isNight
-                ? 'Just Cavalli Club'
-                : 'Island Escape Getaway');
-
-    final location = place == null
-        ? isLuxury
-            ? 'Bavaria, Germany'
-            : isNight
-                ? 'Dubai, UAE'
-                : 'Bali, Indonesia'
-        : '${place.city}, ${place.country}';
-
-    final duration = place == null
-        ? isLuxury
-            ? '8h'
-            : isNight
-                ? '5h'
-                : '24h'
-        : place.type == 'hotel'
-            ? 'per night'
-            : '${place.durationHours.toStringAsFixed(1)}h';
-
-    final price = place == null
-        ? isLuxury
-            ? '\$1480'
-            : isNight
-                ? '\$\$\$'
-                : '\$680'
-        : '\$${place.cost.toStringAsFixed(0)}';
-
-    final rating = place?.rating.toStringAsFixed(1) ??
-        (isLuxury
-            ? '4.9'
-            : isNight
-                ? '4.8'
-                : '4.8');
-
-    final imageUrl = place?.primaryThumbnailUrl ?? place?.primaryImageUrl;
-
-    final tags = _tagsForPlace(
-      place,
-      isLuxury: isLuxury,
-      isNight: isNight,
-    );
+    final location = [
+      package.city,
+      package.country,
+    ].where((value) => value.trim().isNotEmpty).join(', ');
+    final tags = [
+      tag,
+      package.mode,
+      if (package.city.trim().isNotEmpty) package.city,
+    ].where((value) => value.trim().isNotEmpty).take(3).toList();
 
     return GestureDetector(
-      onTap: () => _openDetails(context),
+      onTap: onTap,
       child: Container(
         height: 150,
         decoration: BoxDecoration(
@@ -1025,7 +1159,8 @@ class _SuggestedCardState extends State<_SuggestedCard> {
                   left: Radius.circular(18),
                 ),
                 child: _SuggestedImage(
-                  imageUrl: imageUrl,
+                  imageUrl: package.imageUrl,
+                  imageAsset: package.imageAsset,
                   isLuxury: isLuxury,
                   isNight: isNight,
                 ),
@@ -1034,144 +1169,114 @@ class _SuggestedCardState extends State<_SuggestedCard> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: isLoading && !isLuxury && !isNight
-                    ? const Center(
-                        child: SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isLuxury
+                          ? 'Curated luxury package'
+                          : isNight
+                              ? 'Curated nightlife package'
+                              : 'Suggested package',
+                      style: TextStyle(
+                        color: isLuxury
+                            ? const Color(0xFFB8B8B8)
+                            : isNight
+                                ? const Color(0xFFB8B8D1)
+                                : const Color(0xFF9CA3AF),
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      package.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isLuxury || isNight
+                            ? Colors.white
+                            : const Color(0xFF111827),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 14,
+                          color: isLuxury
+                              ? const Color(0xFFE8C766)
+                              : isNight
+                                  ? const Color(0xFFA855F7)
+                                  : const Color(0xFF9CA3AF),
                         ),
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isLuxury
-                                ? 'Curated for private scenic travel'
-                                : isNight
-                                    ? 'Because you like clubs + nightlife'
-                                    : 'Suggested for you',
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            location.isEmpty ? package.subtitle : location,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isLuxury
                                   ? const Color(0xFFB8B8B8)
                                   : isNight
                                       ? const Color(0xFFB8B8D1)
                                       : const Color(0xFF9CA3AF),
-                              fontSize: 11,
+                              fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isLuxury || isNight
-                                  ? Colors.white
-                                  : const Color(0xFF111827),
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                            ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: tags.map((value) {
+                        return _SmallTag(
+                          text: value,
+                          isLuxury: isLuxury,
+                          isNight: isNight,
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 9),
+                    Row(
+                      children: [
+                        Text(
+                          '\$${package.price.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isLuxury
+                                ? const Color(0xFFE8C766)
+                                : isNight
+                                    ? const Color(0xFFA855F7)
+                                    : const Color(0xFF16A34A),
+                            fontWeight: FontWeight.w800,
                           ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.location_on_outlined,
-                                size: 14,
-                                color: isLuxury
-                                    ? const Color(0xFFE8C766)
-                                    : isNight
-                                        ? const Color(0xFFA855F7)
-                                        : const Color(0xFF9CA3AF),
-                              ),
-                              const SizedBox(width: 3),
-                              Expanded(
-                                child: Text(
-                                  location,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: isLuxury
-                                        ? const Color(0xFFB8B8B8)
-                                        : isNight
-                                            ? const Color(0xFFB8B8D1)
-                                            : const Color(0xFF9CA3AF),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
+                        ),
+                        const SizedBox(width: 10),
+                        const Icon(
+                          Icons.star,
+                          size: 13,
+                          color: Color(0xFFF59E0B),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          package.rating.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isLuxury
+                                ? const Color(0xFFB8B8B8)
+                                : isNight
+                                    ? const Color(0xFFB8B8D1)
+                                    : const Color(0xFF9CA3AF),
                           ),
-                          const Spacer(),
-                          Row(
-                            children: tags.take(3).map((tag) {
-                              return _SmallTag(
-                                text: tag,
-                                isLuxury: isLuxury,
-                                isNight: isNight,
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 9),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.access_time,
-                                size: 13,
-                                color: isLuxury
-                                    ? const Color(0xFFB8B8B8)
-                                    : isNight
-                                        ? const Color(0xFFB8B8D1)
-                                        : const Color(0xFF9CA3AF),
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                duration,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isLuxury
-                                      ? const Color(0xFFB8B8B8)
-                                      : isNight
-                                          ? const Color(0xFFB8B8D1)
-                                          : const Color(0xFF9CA3AF),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                price,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isLuxury
-                                      ? const Color(0xFFE8C766)
-                                      : isNight
-                                          ? const Color(0xFFA855F7)
-                                          : const Color(0xFF16A34A),
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Icon(
-                                Icons.star,
-                                size: 13,
-                                color: Color(0xFFF59E0B),
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                rating,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isLuxury
-                                      ? const Color(0xFFB8B8B8)
-                                      : isNight
-                                          ? const Color(0xFFB8B8D1)
-                                          : const Color(0xFF9CA3AF),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -1179,61 +1284,17 @@ class _SuggestedCardState extends State<_SuggestedCard> {
       ),
     );
   }
-
-  List<String> _tagsForPlace(
-    PlaceModel? place, {
-    required bool isLuxury,
-    required bool isNight,
-  }) {
-    if (place == null) {
-      if (isLuxury) return ['Private', 'Nature', 'Luxury'];
-      if (isNight) return ['Club', 'Nightlife', 'VIP'];
-      return ['Beach', 'Nature', 'Culture'];
-    }
-
-    final tags = <String>[];
-
-    if (place.category.trim().isNotEmpty) {
-      tags.add(_formatTag(place.category));
-    }
-
-    for (final tag in place.interestTags) {
-      final formatted = _formatTag(tag);
-      if (formatted.isNotEmpty && !tags.contains(formatted)) {
-        tags.add(formatted);
-      }
-      if (tags.length == 3) break;
-    }
-
-    if (tags.isEmpty) {
-      tags.add(_formatTag(place.type));
-    }
-
-    if (isLuxury && !tags.contains('Luxury')) {
-      tags.add('Luxury');
-    }
-
-    if (isNight && !tags.contains('Nightlife')) {
-      tags.add('Nightlife');
-    }
-
-    return tags.take(3).toList();
-  }
-
-  String _formatTag(String value) {
-    final cleaned = value.trim().replaceAll('_', ' ');
-    if (cleaned.isEmpty) return cleaned;
-    return cleaned[0].toUpperCase() + cleaned.substring(1);
-  }
 }
 
 class _SuggestedImage extends StatelessWidget {
   final String? imageUrl;
+  final String? imageAsset;
   final bool isLuxury;
   final bool isNight;
 
   const _SuggestedImage({
     required this.imageUrl,
+    this.imageAsset,
     required this.isLuxury,
     required this.isNight,
   });
@@ -1254,12 +1315,21 @@ class _SuggestedImage extends StatelessWidget {
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           return Image.asset(
-            fallbackAsset,
+            imageAsset?.isNotEmpty == true ? imageAsset! : fallbackAsset,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.cover,
           );
         },
+      );
+    }
+
+    if (imageAsset != null && imageAsset!.isNotEmpty) {
+      return Image.asset(
+        imageAsset!,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
       );
     }
 

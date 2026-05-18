@@ -35,3 +35,17 @@ class AIPackageResponse(BaseModel):
 class AIPackageListResponse(BaseModel):
     items: list[AIPackageResponse]
     count: int
+
+
+class AIPackageSuggestion(BaseModel):
+    label: str
+    value: str
+    package_id: str
+    city: str = ""
+    country: str = ""
+    mode: str = "Casual"
+
+
+class AIPackageSuggestionsResponse(BaseModel):
+    suggestions: list[AIPackageSuggestion]
+    count: int
