@@ -1219,7 +1219,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
           icon: _getPlaceIcon(place),
           imageUrl: place.primaryThumbnailUrl ?? place.primaryImageUrl,
           isLuxury: isLuxury,
-          isNight: false,
+          isNight: isNight,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DestinationDetailsScreen(
+                  destination: place.name,
+                  country: place.country,
+                  selectedMode: widget.selectedMode,
+                  place: place,
+                ),
+              ),
+            );
+          },
         );
       }),
     );
@@ -1546,6 +1559,7 @@ class _ExploreCard extends StatelessWidget {
   final String? imageUrl;
   final bool isLuxury;
   final bool isNight;
+  final VoidCallback? onTap;
 
   const _ExploreCard({
     required this.title,
@@ -1558,6 +1572,7 @@ class _ExploreCard extends StatelessWidget {
     this.imageUrl,
     required this.isLuxury,
     required this.isNight,
+    this.onTap,
   });
 
   @override
@@ -1565,172 +1580,215 @@ class _ExploreCard extends StatelessWidget {
     final cardColor = isLuxury
         ? const Color(0xFF0B1020)
         : isNight
-        ? const Color(0xFF111827)
-        : Colors.white;
+            ? const Color(0xFF111827)
+            : Colors.white;
+
     final imageBoxColor = isLuxury
         ? const Color(0xFF111827)
         : isNight
-        ? const Color(0xFF1E1B4B)
-        : const Color(0xFFE0F2FE);
+            ? const Color(0xFF1E1B4B)
+            : const Color(0xFFE0F2FE);
+
     final accentColor = isLuxury
         ? const Color(0xFFE8C766)
         : isNight
-        ? const Color(0xFFA855F7)
-        : const Color(0xFF2563EB);
-    final primaryTextColor = isLuxury || isNight
-        ? Colors.white
-        : const Color(0xFF111827);
+            ? const Color(0xFFA855F7)
+            : const Color(0xFF2563EB);
+
+    final chipBackgroundColor = isLuxury
+        ? const Color(0xFFE8C766).withValues(alpha: 0.14)
+        : isNight
+            ? const Color(0xFFA855F7).withValues(alpha: 0.16)
+            : const Color(0xFFEFF6FF);
+
+    final chipBorderColor = isLuxury
+        ? const Color(0xFFE8C766).withValues(alpha: 0.45)
+        : isNight
+            ? const Color(0xFFA855F7).withValues(alpha: 0.45)
+            : const Color(0xFFBFDBFE);
+
+    final primaryTextColor =
+        isLuxury || isNight ? Colors.white : const Color(0xFF111827);
+
     final secondaryTextColor = isLuxury
         ? const Color(0xFFB8B8B8)
         : isNight
-        ? const Color(0xFFB8B8D1)
-        : const Color(0xFF9CA3AF);
+            ? const Color(0xFFB8B8D1)
+            : const Color(0xFF9CA3AF);
+
     final priceColor = isLuxury
         ? const Color(0xFFE8C766)
         : isNight
-        ? const Color(0xFFEC4899)
-        : const Color(0xFF16A34A);
+            ? const Color(0xFFEC4899)
+            : const Color(0xFF16A34A);
 
-    return Container(
-      height: 148,
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: isLuxury
-              ? const Color(0xFFE8C766).withValues(alpha: 0.35)
-              : isNight
-              ? const Color(0xFFA855F7).withValues(alpha: 0.35)
-              : const Color(0xFFE5E7EB),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(
-              alpha: isLuxury || isNight ? 0.35 : 0.05,
-            ),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 122,
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: isLuxury
+                ? const Color(0xFFE8C766).withValues(alpha: 0.35)
+                : isNight
+                    ? const Color(0xFFA855F7).withValues(alpha: 0.35)
+                    : const Color(0xFFE5E7EB),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 118,
-            decoration: BoxDecoration(
-              color: imageBoxColor,
-              borderRadius: const BorderRadius.horizontal(
-                left: Radius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: isLuxury || isNight ? 0.35 : 0.05,
+              ),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 128,
+              height: double.infinity,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(22),
+                ),
+                child: Container(
+                  color: imageBoxColor,
+                  child: imageUrl == null || imageUrl!.isEmpty
+                      ? _ExploreImagePlaceholder(
+                          icon: icon,
+                          accentColor: accentColor,
+                        )
+                      : Image.network(
+                          imageUrl!,
+                          width: 128,
+                          height: double.infinity,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                          errorBuilder: (context, error, stackTrace) {
+                            return _ExploreImagePlaceholder(
+                              icon: icon,
+                              accentColor: accentColor,
+                            );
+                          },
+                        ),
+                ),
               ),
             ),
-            clipBehavior: Clip.antiAlias,
-            child: imageUrl == null
-                ? _ExploreImagePlaceholder(icon: icon, accentColor: accentColor)
-                : Image.network(
-                    imageUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return _ExploreImagePlaceholder(
-                        icon: icon,
-                        accentColor: accentColor,
-                      );
-                    },
-                  ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    category,
-                    style: TextStyle(
-                      color: accentColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: primaryTextColor,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.location_on_outlined,
-                        size: 14,
-                        color: secondaryTextColor,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 4,
                       ),
-                      const SizedBox(width: 3),
-                      Expanded(
-                        child: Text(
-                          location,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: secondaryTextColor,
-                            fontSize: 12,
-                          ),
-                        ),
+                      decoration: BoxDecoration(
+                        color: chipBackgroundColor,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: chipBorderColor),
                       ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 13,
-                        color: secondaryTextColor,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        duration,
+                      child: Text(
+                        category.isEmpty ? 'place' : category,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11,
-                          color: secondaryTextColor,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        price,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: priceColor,
+                          color: accentColor,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      const Spacer(),
-                      const Icon(
-                        Icons.star,
-                        size: 14,
-                        color: Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: primaryTextColor,
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(width: 3),
-                      Text(
-                        rating,
-                        style: TextStyle(
-                          fontSize: 11,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 14,
                           color: secondaryTextColor,
-                          fontWeight: FontWeight.w700,
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            location,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.access_time,
+                          size: 13,
+                          color: secondaryTextColor,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          duration,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: secondaryTextColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          price,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: priceColor,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const Spacer(),
+                        const Icon(
+                          Icons.star,
+                          size: 15,
+                          color: Color(0xFFF59E0B),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          rating,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: secondaryTextColor,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

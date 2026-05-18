@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../models/ai_package_model.dart';
+import '../models/place_model.dart';
+import '../services/api_service.dart';
+
 class DestinationDetailsScreen extends StatefulWidget {
   final String destination;
   final String country;
   final String selectedMode;
+  final PlaceModel? place;
+  final AiPackageModel? package;
 
   const DestinationDetailsScreen({
     super.key,
     required this.destination,
     required this.country,
     this.selectedMode = 'Casual',
+    this.place,
+    this.package,
   });
 
   @override
@@ -18,7 +26,115 @@ class DestinationDetailsScreen extends StatefulWidget {
 }
 
 class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
+  final ApiService _apiService = ApiService();
+
   bool isFavorite = false;
+  bool isLoadingIncludedItems = false;
+  String? includedItemsError;
+  List<PlaceModel> backendIncludedItems = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadIncludedItemsForPackage();
+  }
+
+  @override
+  void didUpdateWidget(covariant DestinationDetailsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.package?.id != widget.package?.id) {
+      _loadIncludedItemsForPackage();
+    }
+  }
+
+  Future<void> _loadIncludedItemsForPackage() async {
+    final package = widget.package;
+
+    if (package == null) {
+      return;
+    }
+
+    setState(() {
+      isLoadingIncludedItems = true;
+      includedItemsError = null;
+      backendIncludedItems = [];
+    });
+
+    try {
+      final fetchedItems = <PlaceModel>[];
+
+      Future<void> fetchType(String type, int count) async {
+        if (count <= 0) return;
+
+        final isLuxuryMode = widget.selectedMode == 'Luxury';
+
+        Future<List<PlaceModel>> tryFetch({
+          String? city,
+          String? country,
+          String? budgetLevel,
+        }) {
+          return _apiService.getTravelItems(
+            city: city,
+            country: country,
+            type: type,
+            budgetLevel: budgetLevel,
+            includeImages: true,
+            limit: count,
+          );
+        }
+
+        List<PlaceModel> items = [];
+
+        items = await tryFetch(
+          city: package.city,
+          country: package.country,
+          budgetLevel: isLuxuryMode ? 'luxury' : null,
+        );
+
+        if (items.isEmpty) {
+          items = await tryFetch(
+            country: package.country,
+            budgetLevel: isLuxuryMode ? 'luxury' : null,
+          );
+        }
+
+        if (items.isEmpty) {
+          items = await tryFetch(
+            country: package.country,
+          );
+        }
+
+        if (items.isEmpty && isLuxuryMode) {
+          items = await tryFetch(
+            budgetLevel: 'luxury',
+          );
+        }
+
+        fetchedItems.addAll(items.take(count));
+      }
+
+      await fetchType('hotel', package.includedRules.hotel);
+      await fetchType('activity', package.includedRules.activity);
+      await fetchType('restaurant', package.includedRules.restaurant);
+      await fetchType('nightlife', package.includedRules.nightlife);
+
+      if (!mounted) return;
+
+      setState(() {
+        backendIncludedItems = fetchedItems;
+        isLoadingIncludedItems = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        backendIncludedItems = [];
+        includedItemsError = error.toString();
+        isLoadingIncludedItems = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,8 +178,13 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
     final isDubaiLuxuryPackage = widget.destination == 'Dubai Elite Yacht Escape';
     final isPrivateIslandPackage = widget.destination == 'Private Island Stay';
     final isJustCavalli = widget.destination == 'Just Cavalli Club';
+    final backendPlace = widget.place;
+    final hasBackendPlace = backendPlace != null;
+    final backendPackage = widget.package;
+    final hasBackendPackage = backendPackage != null;
 
-    final isPackage = widget.destination == 'Rome First-Time Tour' ||
+    final isPackage = hasBackendPackage ||
+        widget.destination == 'Rome First-Time Tour' ||
         widget.destination == 'Dubai City Highlights' ||
         widget.destination == 'Tokyo Discovery Tour' ||
         widget.destination == 'Halong Bay Seaplane Tour' ||
@@ -177,6 +298,53 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                                 : widget.destination == 'Tokyo Discovery Tour'
                                     ? '\$340'
                                     : '\$680 / night';
+
+    final displayTitle = hasBackendPackage
+        ? backendPackage!.title
+        : hasBackendPlace
+            ? backendPlace!.name
+            : title;
+
+    final displayLocation = hasBackendPackage
+        ? '${backendPackage!.city}, ${backendPackage!.country}'
+        : hasBackendPlace
+            ? '${backendPlace!.city}, ${backendPlace!.country}'
+            : location;
+
+    final displayRating = hasBackendPackage
+        ? backendPackage!.rating.toStringAsFixed(1)
+        : hasBackendPlace
+            ? backendPlace!.rating.toStringAsFixed(1)
+            : rating;
+
+    final displayDescription = hasBackendPackage
+        ? backendPackage!.description
+        : hasBackendPlace
+            ? _descriptionForBackendPlace(backendPlace!)
+            : description;
+
+    final displayPrice = hasBackendPackage
+        ? '\$${backendPackage!.price.toStringAsFixed(0)}'
+        : hasBackendPlace
+            ? backendPlace!.type == 'hotel'
+                ? '\$${backendPlace!.cost.toStringAsFixed(0)} / night'
+                : '\$${backendPlace!.cost.toStringAsFixed(0)}'
+            : price;
+
+    final displayDuration = hasBackendPlace
+        ? backendPlace!.type == 'hotel'
+            ? 'per night'
+            : '${backendPlace!.durationHours.toStringAsFixed(1)} hours'
+        : isBavarianTour
+            ? '8 hours'
+            : isJustCavalli
+                ? '5 hours'
+                : '24 hours';
+
+    final backendImageUrl =
+        backendPlace?.primaryImageUrl ?? backendPlace?.primaryThumbnailUrl;
+    final packageImageUrl = backendPackage?.imageUrl;
+    final packageImageAsset = backendPackage?.imageAsset;
 
     final buttonText = isPackage ? 'Add Package to Plan' : 'Add to Plan';
 
@@ -462,18 +630,48 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
 
               ClipRRect(
                 borderRadius: BorderRadius.circular(18),
-                child: Image.asset(
-                  imageAsset,
-                  width: double.infinity,
-                  height: 320,
-                  fit: BoxFit.cover,
-                ),
+                child: hasBackendPlace && backendImageUrl != null && backendImageUrl.isNotEmpty
+                    ? Image.network(
+                        backendImageUrl,
+                        width: double.infinity,
+                        height: 320,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Image.asset(
+                            imageAsset,
+                            width: double.infinity,
+                            height: 320,
+                            fit: BoxFit.cover,
+                          );
+                        },
+                      )
+                    : hasBackendPackage && packageImageUrl != null && packageImageUrl.isNotEmpty
+                        ? Image.network(
+                            packageImageUrl,
+                            width: double.infinity,
+                            height: 320,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Image.asset(
+                                packageImageAsset ?? imageAsset,
+                                width: double.infinity,
+                                height: 320,
+                                fit: BoxFit.cover,
+                              );
+                            },
+                          )
+                    : Image.asset(
+                        packageImageAsset ?? imageAsset,
+                        width: double.infinity,
+                        height: 320,
+                        fit: BoxFit.cover,
+                      ),
               ),
 
               const SizedBox(height: 14),
 
               Text(
-                title,
+                displayTitle,
                 style: TextStyle(
                   color: accentColor,
                   fontSize: 27,
@@ -492,7 +690,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    location,
+                    displayLocation,
                     style: TextStyle(
                       color: secondaryTextColor,
                       fontSize: 14,
@@ -513,7 +711,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                   const Icon(Icons.star_half, color: Color(0xFFF59E0B), size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    rating,
+                    displayRating,
                     style: TextStyle(
                       color: secondaryTextColor,
                       fontSize: 13,
@@ -526,7 +724,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
               const SizedBox(height: 14),
 
               Text(
-                description,
+                displayDescription,
                 style: TextStyle(
                   color: secondaryTextColor,
                   fontSize: 15,
@@ -538,7 +736,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
               const SizedBox(height: 14),
 
               Text(
-                'Price: $price',
+                'Price: $displayPrice',
                 style: TextStyle(
                   color: accentColor,
                   fontSize: 22,
@@ -559,27 +757,82 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ...includedItems.map((item) {
-                  return _PackageIncludedCard(
-                    imageAsset: item['imageAsset'] as String?,
-                    icon: item['icon'] as IconData,
-                    type: item['type'] as String,
-                    title: item['title'] as String,
-                    subtitle: item['subtitle'] as String,
-                    duration: item['duration'] as String,
-                    price: item['price'] as String,
-                    rating: item['rating'] as String,
-                    cardColor: cardColor,
-                    borderColor: borderColor,
-                    primaryTextColor: primaryTextColor,
-                    secondaryTextColor: secondaryTextColor,
-                    accentColor: accentColor,
-                    isLuxury: isLuxury,
-                  );
-                }),
+                if (hasBackendPackage) ...[
+                  if (isLoadingIncludedItems)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else if (includedItemsError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'Could not load included items.',
+                        style: TextStyle(
+                          color: secondaryTextColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else if (backendIncludedItems.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No included items found for this package.',
+                        style: TextStyle(
+                          color: secondaryTextColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else
+                    ...backendIncludedItems.map((item) {
+                      return _PackageIncludedCard(
+                        imageUrl: item.primaryThumbnailUrl ?? item.primaryImageUrl,
+                        icon: _iconForPlaceType(item),
+                        type: item.type,
+                        title: item.name,
+                        subtitle: '${item.city}, ${item.country}',
+                        duration: item.type == 'hotel'
+                            ? 'per night'
+                            : '${item.durationHours.toStringAsFixed(1)}h',
+                        price: '\$${item.cost.toStringAsFixed(0)}',
+                        rating: item.rating.toStringAsFixed(1),
+                        cardColor: cardColor,
+                        borderColor: borderColor,
+                        primaryTextColor: primaryTextColor,
+                        secondaryTextColor: secondaryTextColor,
+                        accentColor: accentColor,
+                        isLuxury: isLuxury,
+                      );
+                    }),
+                ] else ...[
+                  ...includedItems.map((item) {
+                    return _PackageIncludedCard(
+                      imageAsset: item['imageAsset'] as String?,
+                      icon: item['icon'] as IconData,
+                      type: item['type'] as String,
+                      title: item['title'] as String,
+                      subtitle: item['subtitle'] as String,
+                      duration: item['duration'] as String,
+                      price: item['price'] as String,
+                      rating: item['rating'] as String,
+                      cardColor: cardColor,
+                      borderColor: borderColor,
+                      primaryTextColor: primaryTextColor,
+                      secondaryTextColor: secondaryTextColor,
+                      accentColor: accentColor,
+                      isLuxury: isLuxury,
+                    );
+                  }),
+                ],
               ],
 
-              if (!isPackage || isBavarianTour || isJustCavalli)
+              if (hasBackendPlace || !isPackage || isBavarianTour || isJustCavalli)
                 Row(
                   children: [
                     Icon(
@@ -589,11 +842,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      isBavarianTour
-                          ? '8 hours'
-                          : isJustCavalli
-                              ? '5 hours'
-                              : '24 hours',
+                      displayDuration,
                       style: TextStyle(
                         color: secondaryTextColor,
                         fontSize: 14,
@@ -609,10 +858,47 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
       ),
     );
   }
+
+  String _descriptionForBackendPlace(PlaceModel place) {
+    final category = place.category.trim().isEmpty
+        ? place.type
+        : place.category.trim();
+
+    final location = [
+      if (place.city.trim().isNotEmpty) place.city.trim(),
+      if (place.country.trim().isNotEmpty) place.country.trim(),
+    ].join(', ');
+
+    final tags = place.interestTags
+        .where((tag) => tag.trim().isNotEmpty)
+        .take(3)
+        .join(', ');
+
+    if (tags.isNotEmpty) {
+      return '${place.name} is a $category experience in $location, recommended for travelers interested in $tags.';
+    }
+
+    return '${place.name} is a $category experience in $location, selected from Triply travel recommendations.';
+  }
+
+  IconData _iconForPlaceType(PlaceModel place) {
+    if (place.type == 'hotel') return Icons.hotel_outlined;
+    if (place.type == 'restaurant') return Icons.restaurant_outlined;
+    if (place.type == 'nightlife') return Icons.nightlife_outlined;
+
+    final category = place.category.toLowerCase();
+
+    if (category.contains('culture')) return Icons.account_balance_outlined;
+    if (category.contains('beach')) return Icons.beach_access_outlined;
+    if (category.contains('nature')) return Icons.landscape_outlined;
+
+    return Icons.map_outlined;
+  }
 }
 
 class _PackageIncludedCard extends StatelessWidget {
   final String? imageAsset;
+  final String? imageUrl;
   final IconData icon;
   final String type;
   final String title;
@@ -629,6 +915,7 @@ class _PackageIncludedCard extends StatelessWidget {
 
   const _PackageIncludedCard({
     this.imageAsset,
+    this.imageUrl,
     required this.icon,
     required this.type,
     required this.title,
@@ -665,32 +952,63 @@ class _PackageIncludedCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
+          SizedBox(
             width: 112,
             height: double.infinity,
-            decoration: BoxDecoration(
-              color: isLuxury
-                  ? const Color(0xFFE8C766).withOpacity(0.14)
-                  : const Color(0xFFEFF6FF),
+            child: ClipRRect(
               borderRadius: const BorderRadius.horizontal(
                 left: Radius.circular(22),
               ),
-              image: imageAsset != null
-                  ? DecorationImage(
-                      image: AssetImage(imageAsset!),
+              child: imageUrl != null && imageUrl!.isNotEmpty
+                  ? Image.network(
+                      imageUrl!,
+                      width: 112,
+                      height: double.infinity,
                       fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        if (imageAsset != null && imageAsset!.isNotEmpty) {
+                          return Image.asset(
+                            imageAsset!,
+                            width: 112,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                          );
+                        }
+
+                        return Container(
+                          color: isLuxury
+                              ? const Color(0xFFE8C766).withOpacity(0.14)
+                              : const Color(0xFFEFF6FF),
+                          child: Center(
+                            child: Icon(
+                              icon,
+                              color: accentColor,
+                              size: 44,
+                            ),
+                          ),
+                        );
+                      },
                     )
-                  : null,
+                  : imageAsset != null && imageAsset!.isNotEmpty
+                      ? Image.asset(
+                          imageAsset!,
+                          width: 112,
+                          height: double.infinity,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: isLuxury
+                              ? const Color(0xFFE8C766).withOpacity(0.14)
+                              : const Color(0xFFEFF6FF),
+                          child: Center(
+                            child: Icon(
+                              icon,
+                              color: accentColor,
+                              size: 44,
+                            ),
+                          ),
+                        ),
             ),
-            child: imageAsset == null
-                ? Center(
-                    child: Icon(
-                      icon,
-                      color: accentColor,
-                      size: 44,
-                    ),
-                  )
-                : null,
           ),
           Expanded(
             child: Padding(

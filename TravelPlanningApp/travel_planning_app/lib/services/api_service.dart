@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:travel_planning_app/models/ai_package_model.dart';
 import 'package:travel_planning_app/models/place_model.dart';
 
 class TravelItemSuggestion {
@@ -361,6 +362,64 @@ class ApiService {
           }
 
           return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<AiPackageModel>> getAiPackages({
+    String? mode,
+    int limit = 20,
+  }) async {
+    final safeLimit = limit.clamp(1, 50);
+
+    final queryParameters = <String, String>{
+      'limit': safeLimit.toString(),
+    };
+
+    if (mode != null && mode.isNotEmpty) {
+      queryParameters['mode'] = mode;
+    }
+
+    final uri = Uri.parse(
+      '$baseUrl/ai-packages',
+    ).replace(queryParameters: queryParameters);
+
+    final response = await _client.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load AI packages. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException catch (error) {
+      throw Exception('Invalid JSON response from AI packages API: $error');
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Invalid AI packages response: expected a JSON object.');
+    }
+
+    final items = decoded['items'];
+    if (items is! List) {
+      throw Exception(
+        'Invalid AI packages response: "items" is missing or is not a list.',
+      );
+    }
+
+    return items
+        .map((item) {
+          if (item is! Map) {
+            throw Exception(
+              'Invalid AI packages response: item is not a JSON object.',
+            );
+          }
+
+          return AiPackageModel.fromJson(Map<String, dynamic>.from(item));
         })
         .toList(growable: false);
   }

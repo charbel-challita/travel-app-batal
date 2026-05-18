@@ -1,8 +1,13 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
+import '../models/ai_package_model.dart';
+import '../models/place_model.dart';
+import '../services/api_service.dart';
 import 'destination_details_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final String selectedMode;
   final ValueChanged<String> onModeChanged;
   final VoidCallback? onOpenAiPlanner;
@@ -13,6 +18,20 @@ class HomeScreen extends StatelessWidget {
     required this.onModeChanged,
     this.onOpenAiPlanner,
   });
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ApiService _apiService = ApiService();
+
+  List<AiPackageModel> aiPackages = [];
+  bool isLoadingPackages = false;
+  String? packagesError;
+  List<PlaceModel> nightClubs = [];
+  bool isLoadingNightClubs = false;
+  String? nightClubsError;
 
   static const _luxuryBackground = Color(0xFF030303);
   static const _luxuryCard = Color(0xFF0B1020);
@@ -25,9 +44,92 @@ class HomeScreen extends StatelessWidget {
   static const _nightSecondaryText = Color(0xFFB8B8D1);
 
   @override
+  void initState() {
+    super.initState();
+
+    if (widget.selectedMode == 'Night') {
+      _loadNightClubs();
+    } else {
+      _loadAiPackages();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.selectedMode != widget.selectedMode) {
+      if (widget.selectedMode == 'Night') {
+        _loadNightClubs();
+      } else {
+        _loadAiPackages();
+      }
+    }
+  }
+
+  Future<void> _loadAiPackages() async {
+    setState(() {
+      isLoadingPackages = true;
+      packagesError = null;
+    });
+
+    try {
+      final packages = await _apiService.getAiPackages(
+        mode: widget.selectedMode,
+        limit: 10,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        aiPackages = packages;
+        isLoadingPackages = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        aiPackages = [];
+        packagesError = error.toString();
+        isLoadingPackages = false;
+      });
+    }
+  }
+
+  Future<void> _loadNightClubs() async {
+    setState(() {
+      isLoadingNightClubs = true;
+      nightClubsError = null;
+    });
+
+    try {
+      final clubs = await _apiService.getTravelItems(
+        type: 'nightlife',
+        includeImages: true,
+        limit: 10,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        nightClubs = clubs;
+        isLoadingNightClubs = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        nightClubs = [];
+        nightClubsError = error.toString();
+        isLoadingNightClubs = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isLuxury = selectedMode == 'Luxury';
-    final isNight = selectedMode == 'Night';
+    final isLuxury = widget.selectedMode == 'Luxury';
+    final isNight = widget.selectedMode == 'Night';
     final backgroundColor = isLuxury
         ? _luxuryBackground
         : isNight
@@ -149,25 +251,25 @@ class HomeScreen extends StatelessWidget {
                   _ModeButton(
                     text: 'Casual',
                     icon: Icons.wb_sunny_outlined,
-                    isSelected: selectedMode == 'Casual',
-                    selectedMode: selectedMode,
-                    onTap: () => onModeChanged('Casual'),
+                    isSelected: widget.selectedMode == 'Casual',
+                    selectedMode: widget.selectedMode,
+                    onTap: () => widget.onModeChanged('Casual'),
                   ),
                   const SizedBox(width: 12),
                   _ModeButton(
                     text: 'Luxury',
                     icon: Icons.diamond_outlined,
-                    isSelected: selectedMode == 'Luxury',
-                    selectedMode: selectedMode,
-                    onTap: () => onModeChanged('Luxury'),
+                    isSelected: widget.selectedMode == 'Luxury',
+                    selectedMode: widget.selectedMode,
+                    onTap: () => widget.onModeChanged('Luxury'),
                   ),
                   const SizedBox(width: 12),
                   _ModeButton(
                     text: 'Night',
                     icon: Icons.nightlight_round,
-                    isSelected: selectedMode == 'Night',
-                    selectedMode: selectedMode,
-                    onTap: () => onModeChanged('Night'),
+                    isSelected: widget.selectedMode == 'Night',
+                    selectedMode: widget.selectedMode,
+                    onTap: () => widget.onModeChanged('Night'),
                   ),
                 ],
               ),
@@ -251,7 +353,7 @@ class HomeScreen extends StatelessWidget {
                           SizedBox(
                             height: 40,
                             child: ElevatedButton.icon(
-                              onPressed: onOpenAiPlanner,
+                              onPressed: widget.onOpenAiPlanner,
                               icon: Icon(
                                 isLuxury
                                     ? Icons.diamond_outlined
@@ -383,26 +485,7 @@ class HomeScreen extends StatelessWidget {
               _SuggestedCard(
                 isLuxury: isLuxury,
                 isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DestinationDetailsScreen(
-                        destination: isLuxury
-                            ? 'Private Bavarian Alps Tour'
-                            : isNight
-                                ? 'Just Cavalli Club'
-                                : 'Island Escape Getaway',
-                        country: isLuxury
-                            ? 'Germany'
-                            : isNight
-                                ? 'UAE'
-                                : 'Indonesia',
-                        selectedMode: selectedMode,
-                      ),
-                    ),
-                  );
-                },
+                selectedMode: widget.selectedMode,
               ),
 
               const SizedBox(height: 26),
@@ -416,174 +499,156 @@ class HomeScreen extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _PackageCard(
-                      title: isNight
-                          ? 'Marseille Red Club'
-                          : isLuxury
-                              ? 'Halong Bay Seaplane Tour'
-                              : 'Rome First-Time Tour',
-                      subtitle: isNight
-                          ? 'Waterfront beats'
-                          : isLuxury
-                              ? 'Skyline views & private cruise'
-                              : 'The Eternal City',
-                      price: isNight
-                          ? '\$\$\$'
-                          : isLuxury
-                              ? '\$980'
-                              : '\$320',
-                      rating: isNight
-                          ? '4.6'
-                          : isLuxury
-                              ? '4.9'
-                              : '4.7',
-                      tag: isNight
-                          ? 'Trending'
-                          : isLuxury
-                              ? 'Private'
-                              : 'Popular',
-                      imageAsset: isLuxury
-                          ? 'assets/images/halongbay.jpg'
-                          : isNight
-                              ? null
-                              : 'assets/images/rome.jpg',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => DestinationDetailsScreen(
-                              destination: isLuxury
-                                  ? 'Halong Bay Seaplane Tour'
-                                  : isNight
-                                      ? 'Marseille Red Club'
-                                      : 'Rome First-Time Tour',
-                              country: isLuxury
-                                  ? 'Vietnam'
-                                  : isNight
-                                      ? 'France'
-                                      : 'Italy',
-                              selectedMode: selectedMode,
-                            ),
-                          ),
-                        );
-                      },
-                      isLuxury: isLuxury,
-                      isNight: isNight,
+              if (isNight)
+                _buildNightClubsSection(
+                  secondaryTextColor: secondaryTextColor,
+                )
+              else if (isLoadingPackages)
+                const SizedBox(
+                  height: 220,
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (packagesError != null && aiPackages.isEmpty)
+                SizedBox(
+                  height: 120,
+                  child: Center(
+                    child: Text(
+                      'Could not load packages.',
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    _PackageCard(
-                      title: isNight
-                          ? 'Club Ibiza Nightclub'
-                          : isLuxury
-                              ? 'Dubai Elite Yacht Escape'
-                              : 'Dubai City Highlights',
-                      subtitle: isNight
-                          ? 'Island party energy'
-                          : isLuxury
-                              ? 'Hotel, yacht & fine dining'
-                              : 'Modern wonders await',
-                      price: isNight
-                          ? '\$\$\$'
-                          : isLuxury
-                              ? '\$1850'
-                              : '\$290',
-                      rating: isNight
-                          ? '4.7'
-                          : isLuxury
-                              ? '4.8'
-                              : '4.6',
-                      tag: isNight
-                          ? 'Popular'
-                          : isLuxury
-                              ? 'VIP'
-                              : 'Trending',
-                      imageAsset: isLuxury
-                          ? 'assets/images/dubaiyacht.jpg'
-                          : isNight
-                              ? null
-                              : 'assets/images/dubai.png',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => DestinationDetailsScreen(
-                              destination: isLuxury
-                                  ? 'Dubai Elite Yacht Escape'
-                                  : isNight
-                                      ? 'Club Ibiza Nightclub'
-                                      : 'Dubai City Highlights',
-                              country: isLuxury
-                                  ? 'UAE'
-                                  : isNight
-                                      ? 'Spain'
-                                      : 'UAE',
-                              selectedMode: selectedMode,
-                            ),
-                          ),
-                        );
-                      },
-                      isLuxury: isLuxury,
-                      isNight: isNight,
+                  ),
+                )
+              else if (aiPackages.isEmpty)
+                SizedBox(
+                  height: 120,
+                  child: Center(
+                    child: Text(
+                      isLuxury ? 'No luxury packages found.' : 'No packages found.',
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    _PackageCard(
-                      title: isNight
-                          ? 'Salento Dance Club'
-                          : isLuxury
-                              ? 'Private Island Stay'
-                              : 'Tokyo Discovery Tour',
-                      subtitle: isNight
-                          ? 'Latin dance nights'
-                          : isLuxury
-                              ? 'Private villa, yacht & sunset dining'
-                              : 'Tradition meets tomorrow',
-                      price: isNight
-                          ? '\$\$'
-                          : isLuxury
-                              ? '\$3450'
-                              : '\$340',
-                      rating: isNight ? '4.5' : '4.8',
-                      tag: isNight
-                          ? 'New'
-                          : isLuxury
-                              ? 'Luxury'
-                              : 'Sale',
-                      imageAsset: isLuxury
-                          ? 'assets/images/prvtislandstay.webp'
-                          : isNight
-                              ? null
-                              : 'assets/images/tokyo.webp',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => DestinationDetailsScreen(
-                              destination: isLuxury
-                                  ? 'Private Island Stay'
-                                  : isNight
-                                      ? 'Salento Dance Club'
-                                      : 'Tokyo Discovery Tour',
-                              country: isLuxury
-                                  ? 'Maldives'
-                                  : isNight
-                                      ? 'Colombia'
-                                      : 'Japan',
-                              selectedMode: selectedMode,
+                  ),
+                )
+              else
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: aiPackages.map((package) {
+                      return _PackageCard(
+                        title: package.title,
+                        subtitle: package.subtitle,
+                        price: '\$${package.price.toStringAsFixed(0)}',
+                        rating: package.rating.toStringAsFixed(1),
+                        tag: package.tag,
+                        imageAsset: package.imageAsset,
+                        imageUrl: package.imageUrl,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DestinationDetailsScreen(
+                                destination: package.title,
+                                country: package.country,
+                                selectedMode: widget.selectedMode,
+                                package: package,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      isLuxury: isLuxury,
-                      isNight: isNight,
-                    ),
-                  ],
+                          );
+                        },
+                        isLuxury: isLuxury,
+                        isNight: isNight,
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildNightClubsSection({
+    required Color secondaryTextColor,
+  }) {
+    if (isLoadingNightClubs) {
+      return const SizedBox(
+        height: 220,
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (nightClubsError != null && nightClubs.isEmpty) {
+      return SizedBox(
+        height: 120,
+        child: Center(
+          child: Text(
+            'Could not load clubs.',
+            style: TextStyle(
+              color: secondaryTextColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (nightClubs.isEmpty) {
+      return SizedBox(
+        height: 120,
+        child: Center(
+          child: Text(
+            'No clubs found.',
+            style: TextStyle(
+              color: secondaryTextColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: nightClubs.take(10).map((club) {
+          return _PackageCard(
+            title: club.name,
+            subtitle: '${club.city}, ${club.country}',
+            price: '\$${club.cost.toStringAsFixed(0)}',
+            rating: club.rating.toStringAsFixed(1),
+            tag: club.category.isNotEmpty ? club.category : 'Nightlife',
+            imageUrl: club.primaryThumbnailUrl ?? club.primaryImageUrl,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DestinationDetailsScreen(
+                    destination: club.name,
+                    country: club.country,
+                    selectedMode: widget.selectedMode,
+                    place: club,
+                  ),
+                ),
+              );
+            },
+            isLuxury: false,
+            isNight: true,
+          );
+        }).toList(),
       ),
     );
   }
@@ -768,21 +833,168 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _SuggestedCard extends StatelessWidget {
-  final VoidCallback onTap;
+class _SuggestedCard extends StatefulWidget {
   final bool isLuxury;
   final bool isNight;
+  final String selectedMode;
 
   const _SuggestedCard({
-    required this.onTap,
     required this.isLuxury,
     required this.isNight,
+    required this.selectedMode,
   });
 
   @override
+  State<_SuggestedCard> createState() => _SuggestedCardState();
+}
+
+class _SuggestedCardState extends State<_SuggestedCard> {
+  final ApiService _apiService = ApiService();
+
+  PlaceModel? suggestedPlace;
+  bool isLoading = false;
+  bool hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSuggestedPlace();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SuggestedCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.selectedMode != widget.selectedMode) {
+      _loadSuggestedPlace();
+    }
+  }
+
+  Future<void> _loadSuggestedPlace() async {
+    setState(() {
+      isLoading = true;
+      hasError = false;
+    });
+
+    try {
+      final places = await _apiService.getTravelItems(
+        type: widget.isNight ? 'nightlife' : null,
+        budgetLevel: widget.isLuxury ? 'luxury' : null,
+        includeImages: true,
+        limit: 20,
+      );
+
+      if (!mounted) return;
+
+      if (places.isEmpty) {
+        setState(() {
+          suggestedPlace = null;
+          isLoading = false;
+          hasError = true;
+        });
+        return;
+      }
+
+      final randomPlace = places[Random().nextInt(places.length)];
+
+      setState(() {
+        suggestedPlace = randomPlace;
+        isLoading = false;
+        hasError = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        suggestedPlace = null;
+        isLoading = false;
+        hasError = true;
+      });
+    }
+  }
+
+  void _openDetails(BuildContext context) {
+    final place = suggestedPlace;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DestinationDetailsScreen(
+          destination: place?.name ??
+              (widget.isLuxury
+                  ? 'Private Bavarian Alps Tour'
+                  : widget.isNight
+                      ? 'Just Cavalli Club'
+                      : 'Island Escape Getaway'),
+          country: place?.country ??
+              (widget.isLuxury
+                  ? 'Germany'
+                  : widget.isNight
+                      ? 'UAE'
+                      : 'Indonesia'),
+          selectedMode: widget.selectedMode,
+          place: place,
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isLuxury = widget.isLuxury;
+    final isNight = widget.isNight;
+    final place = suggestedPlace;
+
+    final title = place?.name ??
+        (isLuxury
+            ? 'Private Bavarian Alps Tour'
+            : isNight
+                ? 'Just Cavalli Club'
+                : 'Island Escape Getaway');
+
+    final location = place == null
+        ? isLuxury
+            ? 'Bavaria, Germany'
+            : isNight
+                ? 'Dubai, UAE'
+                : 'Bali, Indonesia'
+        : '${place.city}, ${place.country}';
+
+    final duration = place == null
+        ? isLuxury
+            ? '8h'
+            : isNight
+                ? '5h'
+                : '24h'
+        : place.type == 'hotel'
+            ? 'per night'
+            : '${place.durationHours.toStringAsFixed(1)}h';
+
+    final price = place == null
+        ? isLuxury
+            ? '\$1480'
+            : isNight
+                ? '\$\$\$'
+                : '\$680'
+        : '\$${place.cost.toStringAsFixed(0)}';
+
+    final rating = place?.rating.toStringAsFixed(1) ??
+        (isLuxury
+            ? '4.9'
+            : isNight
+                ? '4.8'
+                : '4.8');
+
+    final imageUrl = place?.primaryThumbnailUrl ?? place?.primaryImageUrl;
+
+    final tags = _tagsForPlace(
+      place,
+      isLuxury: isLuxury,
+      isNight: isNight,
+    );
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => _openDetails(context),
       child: Container(
         height: 150,
         decoration: BoxDecoration(
@@ -797,7 +1009,7 @@ class _SuggestedCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isLuxury ? 0.32 : 0.06),
+              color: Colors.black.withOpacity(isLuxury || isNight ? 0.32 : 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -805,180 +1017,257 @@ class _SuggestedCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
+            SizedBox(
               width: 125,
-              decoration: BoxDecoration(
+              height: double.infinity,
+              child: ClipRRect(
                 borderRadius: const BorderRadius.horizontal(
                   left: Radius.circular(18),
                 ),
-                image: DecorationImage(
-                  image: AssetImage(
-                    isLuxury
-                        ? 'assets/images/privatebavariantour.jpg'
-                        : isNight
-                            ? 'assets/images/justcavalli.jpg'
-                            : 'assets/images/baligetaway.png',
-                  ),
-                  fit: BoxFit.cover,
+                child: _SuggestedImage(
+                  imageUrl: imageUrl,
+                  isLuxury: isLuxury,
+                  isNight: isNight,
                 ),
               ),
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isLuxury
-                          ? 'Curated for private scenic travel'
-                          : isNight
-                              ? 'Because you like clubs + nightlife'
-                              : 'Because you like nature + beaches',
-                      style: TextStyle(
-                        color: isLuxury
-                            ? const Color(0xFFB8B8B8)
-                            : isNight
-                                ? const Color(0xFFB8B8D1)
-                                : const Color(0xFF9CA3AF),
-                        fontSize: 11,
+                child: isLoading && !isLuxury && !isNight
+                    ? const Center(
+                        child: SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isLuxury
+                                ? 'Curated for private scenic travel'
+                                : isNight
+                                    ? 'Because you like clubs + nightlife'
+                                    : 'Suggested for you',
+                            style: TextStyle(
+                              color: isLuxury
+                                  ? const Color(0xFFB8B8B8)
+                                  : isNight
+                                      ? const Color(0xFFB8B8D1)
+                                      : const Color(0xFF9CA3AF),
+                              fontSize: 11,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isLuxury || isNight
+                                  ? Colors.white
+                                  : const Color(0xFF111827),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                size: 14,
+                                color: isLuxury
+                                    ? const Color(0xFFE8C766)
+                                    : isNight
+                                        ? const Color(0xFFA855F7)
+                                        : const Color(0xFF9CA3AF),
+                              ),
+                              const SizedBox(width: 3),
+                              Expanded(
+                                child: Text(
+                                  location,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isLuxury
+                                        ? const Color(0xFFB8B8B8)
+                                        : isNight
+                                            ? const Color(0xFFB8B8D1)
+                                            : const Color(0xFF9CA3AF),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          Row(
+                            children: tags.take(3).map((tag) {
+                              return _SmallTag(
+                                text: tag,
+                                isLuxury: isLuxury,
+                                isNight: isNight,
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 9),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                size: 13,
+                                color: isLuxury
+                                    ? const Color(0xFFB8B8B8)
+                                    : isNight
+                                        ? const Color(0xFFB8B8D1)
+                                        : const Color(0xFF9CA3AF),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                duration,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isLuxury
+                                      ? const Color(0xFFB8B8B8)
+                                      : isNight
+                                          ? const Color(0xFFB8B8D1)
+                                          : const Color(0xFF9CA3AF),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                price,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isLuxury
+                                      ? const Color(0xFFE8C766)
+                                      : isNight
+                                          ? const Color(0xFFA855F7)
+                                          : const Color(0xFF16A34A),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Icon(
+                                Icons.star,
+                                size: 13,
+                                color: Color(0xFFF59E0B),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                rating,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isLuxury
+                                      ? const Color(0xFFB8B8B8)
+                                      : isNight
+                                          ? const Color(0xFFB8B8D1)
+                                          : const Color(0xFF9CA3AF),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isLuxury
-                          ? 'Private Bavarian Alps Tour'
-                          : isNight
-                              ? 'Just Cavalli Club'
-                              : 'Island Escape Getaway',
-                      style: TextStyle(
-                        color: isLuxury || isNight ? Colors.white : const Color(0xFF111827),
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 14,
-                          color: isLuxury
-                              ? const Color(0xFFE8C766)
-                              : isNight
-                                  ? const Color(0xFFA855F7)
-                                  : const Color(0xFF9CA3AF),
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          isLuxury
-                              ? 'Bavaria, Germany'
-                              : isNight
-                                  ? 'Dubai, UAE'
-                                  : 'Bali, Indonesia',
-                          style: TextStyle(
-                            color: isLuxury
-                                ? const Color(0xFFB8B8B8)
-                                : isNight
-                                    ? const Color(0xFFB8B8D1)
-                                    : const Color(0xFF9CA3AF),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        _SmallTag(
-                          text: isLuxury
-                              ? 'Private'
-                              : isNight
-                                  ? 'Luxury'
-                                  : 'Beach',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                        _SmallTag(
-                          text: isNight ? 'Club' : 'Nature',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                        _SmallTag(
-                          text: isLuxury
-                              ? 'Luxury'
-                              : isNight
-                                  ? 'Nightlife'
-                                  : 'Culture',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 9),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time,
-                          size: 13,
-                          color: isLuxury
-                              ? const Color(0xFFB8B8B8)
-                              : isNight
-                                  ? const Color(0xFFB8B8D1)
-                                  : const Color(0xFF9CA3AF),
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          isLuxury ? '8h' : isNight ? '5h' : '24h',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isLuxury
-                                ? const Color(0xFFB8B8B8)
-                                : isNight
-                                    ? const Color(0xFFB8B8D1)
-                                    : const Color(0xFF9CA3AF),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          isLuxury
-                              ? '\$1480'
-                              : isNight
-                                  ? '\$\$\$'
-                                  : '\$680',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isLuxury
-                                ? const Color(0xFFE8C766)
-                                : isNight
-                                    ? const Color(0xFFA855F7)
-                                    : const Color(0xFF16A34A),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Icon(Icons.star, size: 13, color: Color(0xFFF59E0B)),
-                        const SizedBox(width: 3),
-                        Text(
-                          isLuxury ? '4.9' : '4.8',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isLuxury
-                                ? const Color(0xFFB8B8B8)
-                                : isNight
-                                    ? const Color(0xFFB8B8D1)
-                                    : const Color(0xFF9CA3AF),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  List<String> _tagsForPlace(
+    PlaceModel? place, {
+    required bool isLuxury,
+    required bool isNight,
+  }) {
+    if (place == null) {
+      if (isLuxury) return ['Private', 'Nature', 'Luxury'];
+      if (isNight) return ['Club', 'Nightlife', 'VIP'];
+      return ['Beach', 'Nature', 'Culture'];
+    }
+
+    final tags = <String>[];
+
+    if (place.category.trim().isNotEmpty) {
+      tags.add(_formatTag(place.category));
+    }
+
+    for (final tag in place.interestTags) {
+      final formatted = _formatTag(tag);
+      if (formatted.isNotEmpty && !tags.contains(formatted)) {
+        tags.add(formatted);
+      }
+      if (tags.length == 3) break;
+    }
+
+    if (tags.isEmpty) {
+      tags.add(_formatTag(place.type));
+    }
+
+    if (isLuxury && !tags.contains('Luxury')) {
+      tags.add('Luxury');
+    }
+
+    if (isNight && !tags.contains('Nightlife')) {
+      tags.add('Nightlife');
+    }
+
+    return tags.take(3).toList();
+  }
+
+  String _formatTag(String value) {
+    final cleaned = value.trim().replaceAll('_', ' ');
+    if (cleaned.isEmpty) return cleaned;
+    return cleaned[0].toUpperCase() + cleaned.substring(1);
+  }
+}
+
+class _SuggestedImage extends StatelessWidget {
+  final String? imageUrl;
+  final bool isLuxury;
+  final bool isNight;
+
+  const _SuggestedImage({
+    required this.imageUrl,
+    required this.isLuxury,
+    required this.isNight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fallbackAsset = isLuxury
+        ? 'assets/images/privatebavariantour.jpg'
+        : isNight
+            ? 'assets/images/justcavalli.jpg'
+            : 'assets/images/baligetaway.png';
+
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
+      return Image.network(
+        imageUrl!,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Image.asset(
+            fallbackAsset,
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.cover,
+          );
+        },
+      );
+    }
+
+    return Image.asset(
+      fallbackAsset,
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.cover,
     );
   }
 }
@@ -1034,6 +1323,7 @@ class _PackageCard extends StatelessWidget {
   final bool isLuxury;
   final bool isNight;
   final String? imageAsset;
+  final String? imageUrl;
   final VoidCallback? onTap;
 
   const _PackageCard({
@@ -1045,6 +1335,7 @@ class _PackageCard extends StatelessWidget {
     required this.isLuxury,
     required this.isNight,
     this.imageAsset,
+    this.imageUrl,
     this.onTap,
   });
 
@@ -1091,7 +1382,45 @@ class _PackageCard extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  if (imageAsset != null)
+                  if (imageUrl != null && imageUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(18),
+                      ),
+                      child: Image.network(
+                        imageUrl!,
+                        width: double.infinity,
+                        height: 78,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          if (imageAsset != null && imageAsset!.isNotEmpty) {
+                            return Image.asset(
+                              imageAsset!,
+                              width: double.infinity,
+                              height: 78,
+                              fit: BoxFit.cover,
+                            );
+                          }
+
+                          return Center(
+                            child: Icon(
+                              isLuxury
+                                  ? Icons.workspace_premium_outlined
+                                  : isNight
+                                      ? Icons.nightlife
+                                      : Icons.travel_explore,
+                              color: isLuxury
+                                  ? const Color(0xFFE8C766)
+                                  : isNight
+                                      ? const Color(0xFFA855F7)
+                                      : const Color(0xFF2563EB),
+                              size: 36,
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  else if (imageAsset != null && imageAsset!.isNotEmpty)
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(18),
@@ -1106,7 +1435,11 @@ class _PackageCard extends StatelessWidget {
                   else
                     Center(
                       child: Icon(
-                        isLuxury ? Icons.workspace_premium_outlined : Icons.travel_explore,
+                        isLuxury
+                            ? Icons.workspace_premium_outlined
+                            : isNight
+                                ? Icons.nightlife
+                                : Icons.travel_explore,
                         color: isLuxury
                             ? const Color(0xFFE8C766)
                             : isNight
