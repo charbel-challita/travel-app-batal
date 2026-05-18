@@ -74,6 +74,22 @@ class ApiService {
 
   ApiService({http.Client? client}) : _client = client ?? http.Client();
 
+  Future<Map<String, String>> _authHeaders({
+    bool includeJson = false,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Please log in first.');
+    }
+
+    return {
+      if (includeJson) 'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+  }
+
   Future<List<PlaceModel>> getTravelItems({
     String? country,
     String? city,
@@ -422,6 +438,287 @@ class ApiService {
           return AiPackageModel.fromJson(Map<String, dynamic>.from(item));
         })
         .toList(growable: false);
+  }
+
+  Future<List<Map<String, dynamic>>> getTrips({String? status}) async {
+    final queryParameters = <String, String>{};
+
+    if (status != null && status.isNotEmpty) {
+      queryParameters['status'] = status;
+    }
+
+    final uri = Uri.parse(
+      '$baseUrl/trips',
+    ).replace(queryParameters: queryParameters);
+
+    final response = await _client.get(
+      uri,
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load trips. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    final items = decoded['items'];
+
+    if (items is! List) {
+      throw Exception('Invalid trips response: "items" is missing.');
+    }
+
+    return items
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(growable: false);
+  }
+
+  Future<Map<String, int>> getTripCounts() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/trips/counts'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load trip counts. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+
+    int readCount(String key) {
+      final value = decoded[key];
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return 0;
+    }
+
+    return {
+      'ongoing': readCount('ongoing'),
+      'saved': readCount('saved'),
+      'past': readCount('past'),
+    };
+  }
+
+  Future<Map<String, int>> getProfileStats() async {
+    Map<String, int> zeroStats() {
+      return {
+        'saved_trips': 0,
+        'favorites': 0,
+        'past_trips': 0,
+        'casual_trips': 0,
+        'nightlife_trips': 0,
+        'luxury_trips': 0,
+      };
+    }
+
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/trips/profile-stats'),
+        headers: await _authHeaders(),
+      );
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        return zeroStats();
+      }
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Failed to load profile stats. Status code: '
+          '${response.statusCode}. Body: ${response.body}',
+        );
+      }
+
+      final decoded = _decodeJsonObject(response.body);
+
+      int readCount(String key) {
+        final value = decoded[key];
+        if (value is int) return value;
+        if (value is num) return value.toInt();
+        return 0;
+      }
+
+      return {
+        'saved_trips': readCount('saved_trips'),
+        'favorites': readCount('favorites'),
+        'past_trips': readCount('past_trips'),
+        'casual_trips': readCount('casual_trips'),
+        'nightlife_trips': readCount('nightlife_trips'),
+        'luxury_trips': readCount('luxury_trips'),
+      };
+    } catch (error) {
+      if (cleanErrorMessage(error) == 'Please log in first.') {
+        return zeroStats();
+      }
+
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> saveTrip(Map<String, dynamic> tripData) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/trips'),
+      headers: await _authHeaders(includeJson: true),
+      body: jsonEncode(tripData),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+        'Failed to save trip. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    return _decodeJsonObject(response.body);
+  }
+
+  Future<Map<String, dynamic>> updateTripStatus(
+    String tripId,
+    String status,
+  ) async {
+    final response = await _client.put(
+      Uri.parse('$baseUrl/trips/$tripId/status'),
+      headers: await _authHeaders(includeJson: true),
+      body: jsonEncode({'status': status}),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to update trip status. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    return _decodeJsonObject(response.body);
+  }
+
+  Future<void> deleteTrip(String tripId) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/trips/$tripId'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 204) {
+      throw Exception(
+        'Failed to delete trip. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getFavorites() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/favorites'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load favorites. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    final items = decoded['items'];
+
+    if (items is! List) {
+      throw Exception('Invalid favorites response: "items" is missing.');
+    }
+
+    return items
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> addFavorite(
+    Map<String, dynamic> favoriteData,
+  ) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/favorites'),
+      headers: await _authHeaders(includeJson: true),
+      body: jsonEncode(favoriteData),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+        'Failed to add favorite. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    return _decodeJsonObject(response.body);
+  }
+
+  Future<void> removeFavorite(String itemKey) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/favorites/$itemKey'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 204 && response.statusCode != 404) {
+      throw Exception(
+        'Failed to remove favorite. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+  }
+
+  Future<bool> checkFavorite(String itemKey) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/favorites/check/$itemKey'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to check favorite. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    return decoded['is_favorite'] == true;
   }
 
   // ========================= AUTH =========================

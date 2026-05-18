@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_service.dart';
 import 'trip_details_screen.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -15,84 +16,96 @@ class TripsScreen extends StatefulWidget {
 }
 
 class _TripsScreenState extends State<TripsScreen> {
+  final ApiService _apiService = ApiService();
+  final List<String> tabs = ['Ongoing', 'Favorites', 'Saved', 'Past'];
+
   String selectedTab = 'Ongoing';
-
-  final List<String> tabs = ['Ongoing', 'Upcoming', 'Saved', 'Past'];
-
-  final Map<String, List<TripItem>> tripsByTab = {
-    'Ongoing': [
-      TripItem(
-        title: 'Bali Culture & Beach Escape',
-        location: 'Bali, Indonesia',
-        date: 'Today',
-        duration: '7h',
-        status: 'Ongoing',
-        action: 'View itinerary',
-        interests: ['Culture', 'Beach', 'Relax'],
-        icon: Icons.beach_access,
-      ),
-    ],
-    'Upcoming': [
-      TripItem(
-        title: 'Rome Culture Weekend',
-        location: 'Rome, Italy',
-        date: 'June 12',
-        duration: '3 days',
-        status: 'Upcoming',
-        action: 'View details',
-        interests: ['Culture', 'Food', 'History'],
-        icon: Icons.account_balance_outlined,
-      ),
-      TripItem(
-        title: 'Tokyo Discovery Tour',
-        location: 'Tokyo, Japan',
-        date: 'July 4',
-        duration: '7 days',
-        status: 'Upcoming',
-        action: 'View details',
-        interests: ['Food', 'Culture', 'Adventure'],
-        icon: Icons.travel_explore,
-      ),
-    ],
-    'Saved': [
-      TripItem(
-        title: 'Dubai Luxury Break',
-        location: 'Dubai, UAE',
-        date: 'Saved plan',
-        duration: '4 days',
-        status: 'Saved',
-        action: 'Open plan',
-        interests: ['Luxury', 'Shopping', 'City'],
-        icon: Icons.location_city_outlined,
-      ),
-      TripItem(
-        title: 'Just Cavalli Night Plan',
-        location: 'Dubai, UAE',
-        date: 'Saved plan',
-        duration: '4.5h',
-        status: 'Saved',
-        action: 'Choose club',
-        interests: ['Club', 'Nightlife', 'VIP'],
-        icon: Icons.nightlife_outlined,
-      ),
-    ],
-    'Past': [
-      TripItem(
-        title: 'Private Bavarian Alps Escape',
-        location: 'Bavaria, Germany',
-        date: 'May 20',
-        duration: '6h',
-        status: 'Completed',
-        action: 'View memories',
-        interests: ['Private', 'Scenic', 'Luxury'],
-        icon: Icons.landscape_outlined,
-      ),
-    ],
+  bool isLoading = false;
+  String? errorMessage;
+  List<TripItem> currentTrips = [];
+  Map<String, int> counts = {
+    'ongoing': 0,
+    'favorites': 0,
+    'saved': 0,
+    'past': 0,
   };
 
   @override
+  void initState() {
+    super.initState();
+    _loadTrips();
+  }
+
+  String get _selectedStatus => _statusForTab(selectedTab);
+
+  String _statusForTab(String tab) {
+    if (tab == 'Saved') return 'saved';
+    if (tab == 'Past') return 'past';
+    return 'ongoing';
+  }
+
+  Future<void> _loadTrips() async {
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+
+    try {
+      final loadedCounts = await _apiService.getTripCounts();
+      final loadedFavorites = await _apiService.getFavorites();
+      final loadedTrips = selectedTab == 'Favorites'
+          ? loadedFavorites
+          : await _apiService.getTrips(status: _selectedStatus);
+
+      if (!mounted) return;
+
+      setState(() {
+        counts = {
+          ...loadedCounts,
+          'favorites': loadedFavorites.length,
+        };
+        currentTrips = loadedTrips
+            .map<TripItem>(
+              selectedTab == 'Favorites'
+                  ? TripItem.fromFavoriteJson
+                  : TripItem.fromJson,
+            )
+            .toList(growable: false);
+        isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        errorMessage = ApiService.cleanErrorMessage(error);
+        currentTrips = [];
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _updateTripStatus(TripItem trip, String status) async {
+    try {
+      await _apiService.updateTripStatus(trip.id, status);
+      await _loadTrips();
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  String get _emptyMessage {
+    if (selectedTab == 'Favorites') return 'No favorites yet.';
+    if (selectedTab == 'Saved') return 'No saved trips yet.';
+    if (selectedTab == 'Past') return 'No past trips yet.';
+    return 'No ongoing trips yet.';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final currentTrips = tripsByTab[selectedTab] ?? [];
     final isLuxury = widget.selectedMode == 'Luxury';
     final isNight = widget.selectedMode == 'Night';
 
@@ -143,14 +156,12 @@ class _TripsScreenState extends State<TripsScreen> {
                   color: primaryTextColor,
                 ),
               ),
-
               const SizedBox(height: 22),
-
               Row(
                 children: [
                   _TripSummaryCard(
                     label: 'Ongoing',
-                    number: '1',
+                    number: '${counts['ongoing'] ?? 0}',
                     icon: Icons.sync,
                     color: const Color(0xFF10B981),
                     isLuxury: isLuxury,
@@ -158,8 +169,17 @@ class _TripsScreenState extends State<TripsScreen> {
                   ),
                   const SizedBox(width: 10),
                   _TripSummaryCard(
+                    label: 'Favorites',
+                    number: '${counts['favorites'] ?? 0}',
+                    icon: Icons.favorite,
+                    color: const Color(0xFFEC4899),
+                    isLuxury: isLuxury,
+                    isNight: isNight,
+                  ),
+                  const SizedBox(width: 10),
+                  _TripSummaryCard(
                     label: 'Saved',
-                    number: '6',
+                    number: '${counts['saved'] ?? 0}',
                     icon: Icons.bookmark,
                     color: const Color(0xFF2563EB),
                     isLuxury: isLuxury,
@@ -168,7 +188,7 @@ class _TripsScreenState extends State<TripsScreen> {
                   const SizedBox(width: 10),
                   _TripSummaryCard(
                     label: 'Past',
-                    number: '18',
+                    number: '${counts['past'] ?? 0}',
                     icon: Icons.history,
                     color: const Color(0xFFF59E0B),
                     isLuxury: isLuxury,
@@ -176,9 +196,7 @@ class _TripsScreenState extends State<TripsScreen> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 22),
-
               Container(
                 height: 54,
                 padding: const EdgeInsets.all(6),
@@ -196,9 +214,12 @@ class _TripsScreenState extends State<TripsScreen> {
                     return Expanded(
                       child: GestureDetector(
                         onTap: () {
+                          if (selectedTab == tab) return;
+
                           setState(() {
                             selectedTab = tab;
                           });
+                          _loadTrips();
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 180),
@@ -234,21 +255,35 @@ class _TripsScreenState extends State<TripsScreen> {
                   }).toList(),
                 ),
               ),
-
               const SizedBox(height: 26),
-
-              if (currentTrips.isEmpty)
+              if (isLoading)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 40),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (errorMessage != null)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.only(top: 40),
                     child: Text(
-                      'No trips here yet.',
+                      errorMessage!,
                       style: TextStyle(
-                        color: isLuxury
-                            ? const Color(0xFFB8B8B8)
-                            : isNight
-                                ? const Color(0xFFB8B8D1)
-                            : const Color(0xFF6B7280),
+                        color: secondaryTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                )
+              else if (currentTrips.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 40),
+                    child: Text(
+                      _emptyMessage,
+                      style: TextStyle(
+                        color: secondaryTextColor,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -261,6 +296,11 @@ class _TripsScreenState extends State<TripsScreen> {
                       trip: trip,
                       isLuxury: isLuxury,
                       isNight: isNight,
+                      onAction: trip.status == 'saved'
+                          ? () => _updateTripStatus(trip, 'ongoing')
+                          : trip.status == 'ongoing'
+                              ? () => _updateTripStatus(trip, 'past')
+                              : null,
                     );
                   }).toList(),
                 ),
@@ -273,9 +313,9 @@ class _TripsScreenState extends State<TripsScreen> {
 }
 
 class TripItem {
+  final String id;
   final String title;
   final String location;
-  final String date;
   final String duration;
   final String status;
   final String action;
@@ -283,15 +323,85 @@ class TripItem {
   final IconData icon;
 
   TripItem({
+    required this.id,
     required this.title,
     required this.location,
-    required this.date,
     required this.duration,
     required this.status,
     required this.action,
     required this.interests,
     required this.icon,
   });
+
+  factory TripItem.fromJson(Map<String, dynamic> json) {
+    final status = _readString(json['status'], fallback: 'saved');
+
+    return TripItem(
+      id: _readString(json['_id'] ?? json['id']),
+      title: _readString(json['title'], fallback: 'Untitled trip'),
+      location: _readString(json['location']),
+      duration: _readString(json['duration'], fallback: 'Trip plan'),
+      status: status,
+      action: _actionForStatus(status),
+      interests: _readStringList(json['tags']),
+      icon: _iconForStatus(status),
+    );
+  }
+
+  factory TripItem.fromFavoriteJson(Map<String, dynamic> json) {
+    final itemType = _readString(json['item_type'], fallback: 'Favorite');
+
+    return TripItem(
+      id: _readString(json['_id'] ?? json['id']),
+      title: _readString(json['title'], fallback: 'Untitled favorite'),
+      location: _readString(json['location']),
+      duration: _readString(json['duration'], fallback: 'Favorite'),
+      status: 'favorite',
+      action: 'View favorite',
+      interests: _readStringList(json['tags']).isEmpty
+          ? [itemType]
+          : _readStringList(json['tags']),
+      icon: Icons.favorite,
+    );
+  }
+
+  String get displayStatus {
+    if (status == 'ongoing') return 'Ongoing';
+    if (status == 'past') return 'Past';
+    if (status == 'favorite') return 'Favorite';
+    return 'Saved';
+  }
+
+  static String _readString(dynamic value, {String fallback = ''}) {
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return fallback;
+  }
+
+  static List<String> _readStringList(dynamic value) {
+    if (value is! List) {
+      return const [];
+    }
+
+    return value
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .take(3)
+        .toList(growable: false);
+  }
+
+  static String _actionForStatus(String status) {
+    if (status == 'saved') return 'Start Trip';
+    if (status == 'ongoing') return 'Mark as Past';
+    return 'View memories';
+  }
+
+  static IconData _iconForStatus(String status) {
+    if (status == 'saved') return Icons.bookmark;
+    if (status == 'past') return Icons.history;
+    return Icons.sync;
+  }
 }
 
 class _TripSummaryCard extends StatelessWidget {
@@ -356,7 +466,7 @@ class _TripSummaryCard extends StatelessWidget {
                           ? const Color(0xFFB8B8B8)
                           : isNight
                               ? const Color(0xFFB8B8D1)
-                          : const Color(0xFF94A3B8),
+                              : const Color(0xFF94A3B8),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -383,17 +493,19 @@ class _TripLargeCard extends StatelessWidget {
   final TripItem trip;
   final bool isLuxury;
   final bool isNight;
+  final VoidCallback? onAction;
 
   const _TripLargeCard({
     required this.trip,
     required this.isLuxury,
     required this.isNight,
+    this.onAction,
   });
 
   Color get statusColor {
-    if (trip.status == 'Ongoing') return const Color(0xFF10B981);
-    if (trip.status == 'Completed') return const Color(0xFFF59E0B);
-    if (trip.status == 'Upcoming') return const Color(0xFF2563EB);
+    if (trip.status == 'ongoing') return const Color(0xFF10B981);
+    if (trip.status == 'past') return const Color(0xFFF59E0B);
+    if (trip.status == 'favorite') return const Color(0xFFEC4899);
     return const Color(0xFF7C3AED);
   }
 
@@ -407,7 +519,7 @@ class _TripLargeCard extends StatelessWidget {
             builder: (_) => TripDetailsScreen(
               title: trip.title,
               location: trip.location,
-              status: trip.status,
+              status: trip.displayStatus,
             ),
           ),
         );
@@ -448,7 +560,7 @@ class _TripLargeCard extends StatelessWidget {
                   ? Colors.black.withOpacity(0.35)
                   : isNight
                       ? Colors.black.withOpacity(0.35)
-                  : statusColor.withOpacity(0.20),
+                      : statusColor.withOpacity(0.20),
               blurRadius: 18,
               offset: const Offset(0, 9),
             ),
@@ -465,7 +577,6 @@ class _TripLargeCard extends StatelessWidget {
                 color: Colors.white.withOpacity(0.12),
               ),
             ),
-
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -483,11 +594,11 @@ class _TripLargeCard extends StatelessWidget {
                             ? const Color(0xFFE8C766)
                             : isNight
                                 ? const Color(0xFFA855F7)
-                            : Colors.white.withOpacity(0.88),
+                                : Colors.white.withOpacity(0.88),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
-                        trip.status,
+                        trip.displayStatus,
                         style: TextStyle(
                           color: isLuxury
                               ? const Color(0xFF111827)
@@ -500,9 +611,7 @@ class _TripLargeCard extends StatelessWidget {
                       ),
                     ),
                   ),
-
                   const Spacer(),
-
                   Text(
                     trip.title,
                     maxLines: 2,
@@ -514,9 +623,7 @@ class _TripLargeCard extends StatelessWidget {
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
                   Row(
                     children: [
                       const Icon(
@@ -538,19 +645,17 @@ class _TripLargeCard extends StatelessWidget {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 8),
-
                   Row(
                     children: [
                       const Icon(
-                        Icons.calendar_today_outlined,
+                        Icons.access_time,
                         size: 14,
                         color: Colors.white,
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        '${trip.date} • ${trip.duration}',
+                        trip.duration,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -559,13 +664,14 @@ class _TripLargeCard extends StatelessWidget {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 8),
-
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: trip.interests.map((interest) {
+                    children: (trip.interests.isEmpty
+                            ? [trip.displayStatus]
+                            : trip.interests)
+                        .map((interest) {
                       return Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -584,7 +690,7 @@ class _TripLargeCard extends StatelessWidget {
                                 ? const Color(0xFFE8C766)
                                 : isNight
                                     ? const Color(0xFFE879F9)
-                                : statusColor,
+                                    : statusColor,
                             fontSize: 11,
                             fontWeight: FontWeight.w900,
                           ),
@@ -592,23 +698,51 @@ class _TripLargeCard extends StatelessWidget {
                       );
                     }).toList(),
                   ),
-
                   const SizedBox(height: 8),
-
                   Row(
                     children: [
-                      Text(
-                        trip.action,
-                        style: TextStyle(
-                          color: isLuxury
-                              ? const Color(0xFFE8C766)
-                              : isNight
-                                  ? const Color(0xFFE879F9)
-                              : Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
+                      if (onAction == null)
+                        Text(
+                          trip.action,
+                          style: TextStyle(
+                            color: isLuxury
+                                ? const Color(0xFFE8C766)
+                                : isNight
+                                    ? const Color(0xFFE879F9)
+                                    : Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        )
+                      else
+                        ElevatedButton(
+                          onPressed: onAction,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isLuxury
+                                ? const Color(0xFFE8C766)
+                                : isNight
+                                    ? const Color(0xFFA855F7)
+                                    : Colors.white,
+                            foregroundColor: isLuxury || !isNight
+                                ? const Color(0xFF111827)
+                                : Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 9,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: Text(
+                            trip.action,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
                       const SizedBox(width: 5),
                       Icon(
                         Icons.chevron_right,
@@ -616,7 +750,7 @@ class _TripLargeCard extends StatelessWidget {
                             ? const Color(0xFFE8C766)
                             : isNight
                                 ? const Color(0xFFE879F9)
-                            : Colors.white,
+                                : Colors.white,
                         size: 20,
                       ),
                     ],

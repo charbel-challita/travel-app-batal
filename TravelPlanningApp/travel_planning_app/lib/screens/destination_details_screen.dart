@@ -29,8 +29,11 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
   final ApiService _apiService = ApiService();
 
   bool isFavorite = false;
+  bool isSavingTrip = false;
+  bool isUpdatingFavorite = false;
   bool isLoadingIncludedItems = false;
   String? includedItemsError;
+  String? checkedFavoriteKey;
   List<PlaceModel> backendIncludedItems = [];
 
   @override
@@ -133,6 +136,173 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
         includedItemsError = error.toString();
         isLoadingIncludedItems = false;
       });
+    }
+  }
+
+  String _itemKeyFromTitle(String title) {
+    return title
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  Future<void> _saveTrip({
+    required String status,
+    required String message,
+    required String title,
+    required String location,
+    required String image,
+    required String price,
+    required String rating,
+    required String duration,
+    required List<String> tags,
+  }) async {
+    if (isSavingTrip) {
+      return;
+    }
+
+    setState(() {
+      isSavingTrip = true;
+    });
+
+    try {
+      await _apiService.saveTrip({
+        'item_key': _itemKeyFromTitle(title),
+        'title': title,
+        'location': location,
+        'image': image,
+        'selected_mode': widget.selectedMode,
+        'status': status,
+        'tags': tags,
+        'price': price,
+        'rating': rating,
+        'duration': duration,
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        isSavingTrip = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isSavingTrip = false;
+      });
+
+      final message = ApiService.cleanErrorMessage(error) == 'Please log in first.'
+          ? 'Please log in to save trips.'
+          : 'Could not update trip.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  Future<void> _syncFavoriteState(String itemKey) async {
+    if (checkedFavoriteKey == itemKey) {
+      return;
+    }
+
+    checkedFavoriteKey = itemKey;
+
+    try {
+      final favorite = await _apiService.checkFavorite(itemKey);
+
+      if (!mounted || checkedFavoriteKey != itemKey) return;
+
+      setState(() {
+        isFavorite = favorite;
+      });
+    } catch (_) {
+      // Guests can still view details. The tap handler shows the login message.
+    }
+  }
+
+  Future<void> _toggleFavorite({
+    required String itemKey,
+    required String itemType,
+    required String title,
+    required String location,
+    required String image,
+    required String price,
+    required String rating,
+    required String duration,
+    required List<String> tags,
+    required String sourceCollection,
+  }) async {
+    if (isUpdatingFavorite) {
+      return;
+    }
+
+    setState(() {
+      isUpdatingFavorite = true;
+    });
+
+    try {
+      if (isFavorite) {
+        await _apiService.removeFavorite(itemKey);
+
+        if (!mounted) return;
+
+        setState(() {
+          isFavorite = false;
+          isUpdatingFavorite = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Removed from favorites.')),
+        );
+        return;
+      }
+
+      await _apiService.addFavorite({
+        'target_id': itemKey,
+        'target_type': itemType,
+        'item_key': itemKey,
+        'item_type': itemType,
+        'title': title,
+        'location': location,
+        'image': image,
+        'selected_mode': widget.selectedMode,
+        'tags': tags,
+        'price': price,
+        'rating': rating,
+        'duration': duration,
+        'source_collection': sourceCollection,
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        isFavorite = true;
+        isUpdatingFavorite = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Added to favorites.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isUpdatingFavorite = false;
+      });
+
+      final message = ApiService.cleanErrorMessage(error) == 'Please log in first.'
+          ? 'Please log in to add favorites.'
+          : 'Could not update favorite.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -557,6 +727,32 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                               ]
                             : [];
 
+    final displayImage = backendImageUrl ??
+        packageImageUrl ??
+        packageImageAsset ??
+        imageAsset;
+    final displayTags = hasBackendPackage
+        ? [backendPackage!.tag, widget.selectedMode]
+        : hasBackendPlace
+            ? backendPlace!.interestTags.take(3).toList(growable: false)
+            : includedItems
+                .expand((item) => (item['tags'] as List?) ?? const [])
+                .map((tag) => tag.toString())
+                .take(3)
+                .toList(growable: false);
+    final itemKey = _itemKeyFromTitle(displayTitle);
+    final favoriteItemType = hasBackendPackage || isPackage
+        ? 'package'
+        : hasBackendPlace
+            ? backendPlace!.type
+            : 'place';
+    final sourceCollection = hasBackendPackage
+        ? 'ai_packages'
+        : hasBackendPlace
+            ? 'travel_items'
+            : 'hardcoded_package';
+    _syncFavoriteState(itemKey);
+
     return Scaffold(
       backgroundColor: backgroundColor,
 
@@ -567,13 +763,19 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Added to plan'),
-                  ),
-                );
-              },
+              onPressed: isSavingTrip
+                  ? null
+                  : () => _saveTrip(
+                        status: 'saved',
+                        message: 'Package saved to trips.',
+                        title: displayTitle,
+                        location: displayLocation,
+                        image: displayImage,
+                        price: displayPrice,
+                        rating: displayRating,
+                        duration: displayDuration,
+                        tags: displayTags,
+                      ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: accentColor,
                 foregroundColor: isLuxury ? const Color(0xFF111827) : Colors.white,
@@ -583,7 +785,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                 ),
               ),
               child: Text(
-                buttonText,
+                isSavingTrip ? 'Saving...' : buttonText,
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -610,11 +812,20 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                   ),
                   const Spacer(),
                   IconButton(
-                    onPressed: () {
-                      setState(() {
-                        isFavorite = !isFavorite;
-                      });
-                    },
+                    onPressed: isUpdatingFavorite
+                        ? null
+                        : () => _toggleFavorite(
+                              itemKey: itemKey,
+                              itemType: favoriteItemType,
+                              title: displayTitle,
+                              location: displayLocation,
+                              image: displayImage,
+                              price: displayPrice,
+                              rating: displayRating,
+                              duration: displayDuration,
+                              tags: displayTags,
+                              sourceCollection: sourceCollection,
+                            ),
                     icon: Icon(
                       isFavorite ? Icons.favorite : Icons.favorite_border,
                       color: isFavorite

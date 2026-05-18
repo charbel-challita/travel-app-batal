@@ -22,8 +22,21 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final ApiService _apiService = ApiService();
   Map<String, dynamic>? currentUser;
   bool isLoadingUser = true;
+  Map<String, int> profileStats = _zeroProfileStats();
+
+  static Map<String, int> _zeroProfileStats() {
+    return {
+      'saved_trips': 0,
+      'favorites': 0,
+      'past_trips': 0,
+      'casual_trips': 0,
+      'nightlife_trips': 0,
+      'luxury_trips': 0,
+    };
+  }
 
   @override
   void initState() {
@@ -36,10 +49,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (!mounted) return;
 
+    if (user == null) {
+      setState(() {
+        currentUser = null;
+        profileStats = _zeroProfileStats();
+        isLoadingUser = false;
+      });
+      return;
+    }
+
     setState(() {
       currentUser = user;
       isLoadingUser = false;
     });
+
+    try {
+      final stats = await _apiService.getProfileStats();
+
+      if (!mounted) return;
+
+      setState(() {
+        profileStats = stats;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        profileStats = _zeroProfileStats();
+      });
+    }
   }
 
   Future<void> openCreateAccount() async {
@@ -75,6 +113,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() {
       currentUser = null;
+      profileStats = _zeroProfileStats();
     });
   }
 
@@ -118,13 +157,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         : isNight
             ? const Color(0xFFA855F7).withOpacity(0.35)
             : const Color(0xFFE5E7EB);
-    final isGuest = currentUser == null;
-    final savedTrips = isGuest ? '0' : '6';
-    final favorites = isGuest ? '0' : '12';
-    final pastTrips = isGuest ? '0' : '18';
-    final casualTrips = isGuest ? '0' : '9';
-    final nightlifeTrips = isGuest ? '0' : '6';
-    final luxuryTrips = isGuest ? '0' : '3';
+    final savedTrips = '${profileStats['saved_trips'] ?? 0}';
+    final favorites = '${profileStats['favorites'] ?? 0}';
+    final pastTrips = '${profileStats['past_trips'] ?? 0}';
+    final casualTrips = '${profileStats['casual_trips'] ?? 0}';
+    final nightlifeTrips = '${profileStats['nightlife_trips'] ?? 0}';
+    final luxuryTrips = '${profileStats['luxury_trips'] ?? 0}';
 
     return Scaffold(
       backgroundColor: backgroundColor,

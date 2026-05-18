@@ -49,7 +49,6 @@ class ExploreScreen extends StatefulWidget {
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
-  String selectedType = 'Activities';
   String? selectedTypeFilter;
   bool isLoadingPlaces = false;
   String? placesError;
@@ -62,10 +61,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Timer? _suggestionsDebounce;
   int _suggestionsRequestId = 0;
   bool isLoadingSuggestions = false;
-  bool isLuxuryFilterActive = false;
   List<TravelItemSuggestion> searchSuggestions = [];
-
-  final List<String> types = ['Activities', 'Hotels', 'Restaurants'];
 
   @override
   void initState() {
@@ -106,6 +102,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final places = await _apiService.getTravelItems(
         type: _currentApiType,
         budgetLevel: _currentApiBudgetLevel,
+        nightlife: _currentApiNightlife,
         includeImages: true,
         limit: _currentBackendLimit,
       );
@@ -145,6 +142,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         query: trimmedQuery,
         type: _currentApiType,
         budgetLevel: _currentApiBudgetLevel,
+        nightlife: _currentApiNightlife,
         includeImages: true,
         limit: 20,
       );
@@ -193,6 +191,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           city: suggestion.value,
           type: _currentApiType,
           budgetLevel: _currentApiBudgetLevel,
+          nightlife: _currentApiNightlife,
           includeImages: true,
           limit: 20,
         );
@@ -201,6 +200,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           country: suggestion.value,
           type: _currentApiType,
           budgetLevel: _currentApiBudgetLevel,
+          nightlife: _currentApiNightlife,
           includeImages: true,
           limit: 20,
         );
@@ -209,6 +209,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           query: suggestion.value,
           type: _currentApiType,
           budgetLevel: _currentApiBudgetLevel,
+          nightlife: _currentApiNightlife,
           includeImages: true,
           limit: 20,
         );
@@ -229,27 +230,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         isLoadingPlaces = false;
       });
     }
-  }
-
-  void _handleTypeSelected(String type) {
-    setState(() {
-      selectedType = type;
-    });
-
-    if (!_usesBackendPlaces(widget.selectedMode)) {
-      return;
-    }
-
-    _suggestionsDebounce?.cancel();
-    _suggestionsRequestId++;
-    searchController.clear();
-    setState(() {
-      searchText = '';
-      isLuxuryFilterActive = false;
-      searchSuggestions = [];
-      isLoadingSuggestions = false;
-    });
-    _loadNormalPlaces();
   }
 
   void _handleSearchChanged(String value) {
@@ -294,6 +274,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         query: query,
         type: _currentApiType,
         budgetLevel: _currentApiBudgetLevel,
+        nightlife: _currentApiNightlife,
         limit: 5,
       );
 
@@ -329,14 +310,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     searchController.clear();
     setState(() {
       searchText = '';
-      isLuxuryFilterActive = false;
       searchSuggestions = [];
       isLoadingSuggestions = false;
     });
 
-    if (widget.selectedMode == 'Night' || widget.selectedMode == 'Luxury') {
-      return;
-    }
     if (_usesBackendPlaces(widget.selectedMode)) {
       _loadNormalPlaces();
     }
@@ -344,12 +321,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   void _handleSearchSubmitted(String value) {
     if (!_usesBackendPlaces(widget.selectedMode)) {
-      return;
-    }
-    if (widget.selectedMode == 'Night') {
-      return;
-    }
-    if (widget.selectedMode == 'Luxury') {
       return;
     }
 
@@ -472,16 +443,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                ...types.map((type) {
-                  final isSelected = selectedType == type;
+                ..._typeFilterOptions.map((option) {
+                  final isSelected = selectedTypeFilter == option.type;
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
-                      _getTypeIcon(type),
+                      option.icon,
                       color: const Color(0xFFE8C766),
                     ),
                     title: Text(
-                      type,
+                      option.label,
                       style: const TextStyle(
                         color: Color(0xFFFFF8E1),
                         fontWeight: FontWeight.w800,
@@ -495,6 +466,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         : null,
                     onTap: () {
                       Navigator.pop(context);
+                      _applyTypeFilter(option.type);
                     },
                   );
                 }),
@@ -595,10 +567,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  void _applyLuxuryTypeFilter(String type) {
-    selectedType = type;
-  }
-
   void _clearTypeFilter() {
     _applyTypeFilter(null);
   }
@@ -612,9 +580,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   String? get _currentApiType {
-    if (widget.selectedMode == 'Luxury') {
-      return _selectedLuxuryType;
-    }
     if (widget.selectedMode == 'Night') {
       return 'nightlife';
     }
@@ -625,66 +590,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return widget.selectedMode == 'Luxury' ? 'luxury' : null;
   }
 
-  int get _currentBackendLimit {
-    if (widget.selectedMode != 'Luxury') {
-      return 20;
-    }
-    return _isLuxurySearchOrFilterActive ? 20 : 100;
+  bool? get _currentApiNightlife {
+    return widget.selectedMode == 'Night' ? true : null;
   }
 
-  String get _selectedLuxuryType {
-    if (selectedType == 'Hotels') return 'hotel';
-    if (selectedType == 'Restaurants') return 'restaurant';
-    return 'activity';
+  int get _currentBackendLimit {
+    return 20;
   }
 
   List<PlaceModel> _visiblePlacesForCurrentMode(List<PlaceModel> places) {
-    if (widget.selectedMode != 'Luxury' || _isLuxurySearchOrFilterActive) {
-      return places;
-    }
-
-    final nonSafariPlaces = places
-        .where((place) => !_isSafariItem(place))
-        .toList(growable: false);
-
-    return _takeOnePerCountry(nonSafariPlaces);
-  }
-
-  List<PlaceModel> _takeOnePerCountry(List<PlaceModel> places) {
-    final seenCountries = <String>{};
-    final diversePlaces = <PlaceModel>[];
-
-    for (final place in places) {
-      var countryKey = place.country.trim().toLowerCase();
-      if (countryKey.isEmpty) {
-        countryKey = 'unknown-${place.id ?? place.name}-${diversePlaces.length}';
-      }
-
-      if (seenCountries.add(countryKey)) {
-        diversePlaces.add(place);
-      }
-
-      if (diversePlaces.length == 10) {
-        break;
-      }
-    }
-
-    return diversePlaces;
-  }
-
-  bool _isSafariItem(PlaceModel place) {
-    final searchableText = [
-      place.name,
-      place.category,
-      ...place.interestTags,
-    ].join(' ').toLowerCase();
-
-    return searchableText.contains('safari');
-  }
-
-  bool get _isLuxurySearchOrFilterActive {
-    return widget.selectedMode == 'Luxury' &&
-        (searchText.trim().isNotEmpty || isLuxuryFilterActive);
+    return places;
   }
 
   List<PlaceModel> _samplePlacesForSelectedFilter() {
@@ -703,28 +618,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _handleSuggestionTap(TravelItemSuggestion suggestion) {
-    if (widget.selectedMode == 'Night' || widget.selectedMode == 'Luxury') {
-      _suggestionsDebounce?.cancel();
-      _suggestionsRequestId++;
-      setState(() {
-        searchText = suggestion.value;
-        searchSuggestions = [];
-        isLoadingSuggestions = false;
-      });
-      searchController.text = suggestion.value;
-      searchController.selection = TextSelection.collapsed(
-        offset: searchController.text.length,
-      );
-      return;
-    }
-
     _loadPlacesForSuggestion(suggestion);
   }
 
   String get _luxurySectionTitle {
-    if (selectedType == 'Activities') return 'Exclusive activities';
-    if (selectedType == 'Hotels') return 'Luxury hotels';
-    return 'Fine dining restaurants';
+    if (selectedTypeFilter == 'activity') return 'Exclusive activities';
+    if (selectedTypeFilter == 'hotel') return 'Luxury hotels';
+    if (selectedTypeFilter == 'restaurant') return 'Fine dining restaurants';
+    if (selectedTypeFilter == 'nightlife') return 'Premium nightlife';
+    return 'Premium places';
   }
 
   String get _activeFilterLabel {
@@ -860,13 +762,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                     onPressed: _showLuxuryFilterSheet,
                                     icon: Icon(
                                       Icons.tune,
-                                      color: isLuxuryFilterActive
+                                      color: selectedTypeFilter != null
                                           ? const Color(0xFFFFF8E1)
                                           : accentColor,
                                     ),
                                   ),
                                   if (searchText.isNotEmpty ||
-                                      isLuxuryFilterActive)
+                                      selectedTypeFilter != null)
                                     IconButton(
                                       tooltip: 'Clear search',
                                       onPressed: _clearSearch,
@@ -1069,11 +971,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: types.map((type) {
-                      final isSelected = selectedType == type;
+                    children: _typeFilterOptions.map((option) {
+                      final isSelected = selectedTypeFilter == option.type;
 
                       return GestureDetector(
-                        onTap: () => _handleTypeSelected(type),
+                        onTap: () => _applyTypeFilter(option.type),
                         child: Container(
                           margin: const EdgeInsets.only(right: 10),
                           padding: const EdgeInsets.symmetric(
@@ -1090,7 +992,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           child: Row(
                             children: [
                               Icon(
-                                _getTypeIcon(type),
+                                option.icon,
                                 size: 16,
                                 color: isSelected
                                     ? const Color(0xFF111827)
@@ -1098,7 +1000,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               ),
                               const SizedBox(width: 7),
                               Text(
-                                type,
+                                option.label,
                                 style: TextStyle(
                                   color: isSelected
                                       ? const Color(0xFF111827)
@@ -1148,12 +1050,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       ),
     );
-  }
-
-  IconData _getTypeIcon(String type) {
-    if (type == 'Hotels') return Icons.hotel_outlined;
-    if (type == 'Restaurants') return Icons.restaurant_outlined;
-    return Icons.map_outlined;
   }
 
   List<Widget> _getTypeCards({required bool isLuxury, required bool isNight}) {
