@@ -62,6 +62,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Timer? _suggestionsDebounce;
   int _suggestionsRequestId = 0;
   bool isLoadingSuggestions = false;
+  bool isLuxuryFilterActive = false;
   List<TravelItemSuggestion> searchSuggestions = [];
 
   final List<String> types = ['Activities', 'Hotels', 'Restaurants'];
@@ -69,7 +70,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void initState() {
     super.initState();
-    if (_isNormalMode(widget.selectedMode)) {
+    if (_usesBackendPlaces(widget.selectedMode)) {
       _loadNormalPlaces();
     }
   }
@@ -77,11 +78,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void didUpdateWidget(covariant ExploreScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_isNormalMode(oldWidget.selectedMode) &&
-        _isNormalMode(widget.selectedMode)) {
+    if (_usesBackendPlaces(widget.selectedMode) &&
+        oldWidget.selectedMode != widget.selectedMode) {
       _loadNormalPlaces();
-    } else if (_isNormalMode(oldWidget.selectedMode) &&
-        !_isNormalMode(widget.selectedMode)) {
+    } else if (_usesBackendPlaces(oldWidget.selectedMode) &&
+        !_usesBackendPlaces(widget.selectedMode)) {
       _clearSuggestions();
     }
   }
@@ -103,22 +104,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     try {
       final places = await _apiService.getTravelItems(
-        type: selectedTypeFilter,
+        type: _currentApiType,
+        budgetLevel: _currentApiBudgetLevel,
         includeImages: true,
-        limit: 20,
+        limit: _currentBackendLimit,
       );
 
       if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = places;
+        normalPlaces = _visiblePlacesForCurrentMode(places);
         isLoadingPlaces = false;
       });
     } catch (error) {
       if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = _samplePlacesForSelectedFilter();
+        normalPlaces = _fallbackPlacesForCurrentMode();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
@@ -141,7 +143,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
     try {
       final places = await _apiService.searchTravelItems(
         query: trimmedQuery,
-        type: selectedTypeFilter,
+        type: _currentApiType,
+        budgetLevel: _currentApiBudgetLevel,
         includeImages: true,
         limit: 20,
       );
@@ -156,7 +159,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = _samplePlacesForSelectedFilter();
+        normalPlaces = _fallbackPlacesForCurrentMode();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
@@ -188,21 +191,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (suggestion.kind == 'city') {
         places = await _apiService.getTravelItems(
           city: suggestion.value,
-          type: selectedTypeFilter,
+          type: _currentApiType,
+          budgetLevel: _currentApiBudgetLevel,
           includeImages: true,
           limit: 20,
         );
       } else if (suggestion.kind == 'country') {
         places = await _apiService.getTravelItems(
           country: suggestion.value,
-          type: selectedTypeFilter,
+          type: _currentApiType,
+          budgetLevel: _currentApiBudgetLevel,
           includeImages: true,
           limit: 20,
         );
       } else {
         places = await _apiService.searchTravelItems(
           query: suggestion.value,
-          type: selectedTypeFilter,
+          type: _currentApiType,
+          budgetLevel: _currentApiBudgetLevel,
           includeImages: true,
           limit: 20,
         );
@@ -218,7 +224,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || requestId != _placesRequestId) return;
 
       setState(() {
-        normalPlaces = _samplePlacesForSelectedFilter();
+        normalPlaces = _fallbackPlacesForCurrentMode();
         placesError = error.toString();
         isLoadingPlaces = false;
       });
@@ -230,7 +236,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       selectedType = type;
     });
 
-    if (!_isNormalMode(widget.selectedMode)) {
+    if (!_usesBackendPlaces(widget.selectedMode)) {
       return;
     }
 
@@ -239,6 +245,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     searchController.clear();
     setState(() {
       searchText = '';
+      isLuxuryFilterActive = false;
       searchSuggestions = [];
       isLoadingSuggestions = false;
     });
@@ -250,12 +257,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
       searchText = value;
     });
 
-    if (!_isNormalMode(widget.selectedMode)) {
+    if (!_usesBackendPlaces(widget.selectedMode)) {
       return;
     }
 
     final query = value.trim();
     _suggestionsDebounce?.cancel();
+
+    if (query.isEmpty) {
+      _suggestionsRequestId++;
+      _clearSuggestions();
+      return;
+    }
 
     if (query.length < 2) {
       _suggestionsRequestId++;
@@ -264,7 +277,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     _suggestionsDebounce = Timer(const Duration(milliseconds: 300), () {
-      _loadSuggestions(query);
+      if (query.length >= 2) {
+        _loadSuggestions(query);
+      }
     });
   }
 
@@ -277,13 +292,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
     try {
       final suggestions = await _apiService.getTravelItemSuggestions(
         query: query,
-        type: selectedTypeFilter,
+        type: _currentApiType,
+        budgetLevel: _currentApiBudgetLevel,
         limit: 5,
       );
 
       if (!mounted || requestId != _suggestionsRequestId) return;
       if (searchController.text.trim() != query) return;
-      if (!_isNormalMode(widget.selectedMode)) return;
+      if (!_usesBackendPlaces(widget.selectedMode)) return;
 
       setState(() {
         searchSuggestions = suggestions.take(5).toList(growable: false);
@@ -313,17 +329,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
     searchController.clear();
     setState(() {
       searchText = '';
+      isLuxuryFilterActive = false;
       searchSuggestions = [];
       isLoadingSuggestions = false;
     });
 
-    if (_isNormalMode(widget.selectedMode)) {
+    if (widget.selectedMode == 'Night' || widget.selectedMode == 'Luxury') {
+      return;
+    }
+    if (_usesBackendPlaces(widget.selectedMode)) {
       _loadNormalPlaces();
     }
   }
 
   void _handleSearchSubmitted(String value) {
-    if (!_isNormalMode(widget.selectedMode)) {
+    if (!_usesBackendPlaces(widget.selectedMode)) {
+      return;
+    }
+    if (widget.selectedMode == 'Night') {
+      return;
+    }
+    if (widget.selectedMode == 'Luxury') {
       return;
     }
 
@@ -404,6 +430,153 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  void _showLuxuryFilterSheet() {
+    if (widget.selectedMode != 'Luxury') {
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0B1020),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Filter premium places',
+                        style: TextStyle(
+                          color: Color(0xFFFFF8E1),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Color(0xFFE8C766),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...types.map((type) {
+                  final isSelected = selectedType == type;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      _getTypeIcon(type),
+                      color: const Color(0xFFE8C766),
+                    ),
+                    title: Text(
+                      type,
+                      style: const TextStyle(
+                        color: Color(0xFFFFF8E1),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(
+                            Icons.check_circle,
+                            color: Color(0xFFE8C766),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showNightFilterSheet() {
+    if (widget.selectedMode != 'Night') {
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF111827),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) {
+        const options = [
+          {'label': 'Nightclubs', 'icon': Icons.nightlife_outlined},
+          {'label': 'Bars', 'icon': Icons.local_bar_outlined},
+          {'label': 'Rooftops', 'icon': Icons.roofing_outlined},
+          {'label': 'Live music', 'icon': Icons.music_note_outlined},
+        ];
+
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Night suggestions',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Color(0xFFA855F7)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...options.map((option) {
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      option['icon'] as IconData,
+                      color: const Color(0xFFA855F7),
+                    ),
+                    title: Text(
+                      option['label'] as String,
+                      style: const TextStyle(
+                        color: Color(0xFFB8B8D1),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _applyTypeFilter(String? type) {
     _suggestionsDebounce?.cancel();
     _suggestionsRequestId++;
@@ -422,6 +595,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
+  void _applyLuxuryTypeFilter(String type) {
+    selectedType = type;
+  }
+
   void _clearTypeFilter() {
     _applyTypeFilter(null);
   }
@@ -430,12 +607,124 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return mode != 'Luxury' && mode != 'Night';
   }
 
+  bool _usesBackendPlaces(String mode) {
+    return true;
+  }
+
+  String? get _currentApiType {
+    if (widget.selectedMode == 'Luxury') {
+      return _selectedLuxuryType;
+    }
+    if (widget.selectedMode == 'Night') {
+      return 'nightlife';
+    }
+    return selectedTypeFilter;
+  }
+
+  String? get _currentApiBudgetLevel {
+    return widget.selectedMode == 'Luxury' ? 'luxury' : null;
+  }
+
+  int get _currentBackendLimit {
+    if (widget.selectedMode != 'Luxury') {
+      return 20;
+    }
+    return _isLuxurySearchOrFilterActive ? 20 : 100;
+  }
+
+  String get _selectedLuxuryType {
+    if (selectedType == 'Hotels') return 'hotel';
+    if (selectedType == 'Restaurants') return 'restaurant';
+    return 'activity';
+  }
+
+  List<PlaceModel> _visiblePlacesForCurrentMode(List<PlaceModel> places) {
+    if (widget.selectedMode != 'Luxury' || _isLuxurySearchOrFilterActive) {
+      return places;
+    }
+
+    final nonSafariPlaces = places
+        .where((place) => !_isSafariItem(place))
+        .toList(growable: false);
+
+    return _takeOnePerCountry(nonSafariPlaces);
+  }
+
+  List<PlaceModel> _takeOnePerCountry(List<PlaceModel> places) {
+    final seenCountries = <String>{};
+    final diversePlaces = <PlaceModel>[];
+
+    for (final place in places) {
+      var countryKey = place.country.trim().toLowerCase();
+      if (countryKey.isEmpty) {
+        countryKey = 'unknown-${place.id ?? place.name}-${diversePlaces.length}';
+      }
+
+      if (seenCountries.add(countryKey)) {
+        diversePlaces.add(place);
+      }
+
+      if (diversePlaces.length == 10) {
+        break;
+      }
+    }
+
+    return diversePlaces;
+  }
+
+  bool _isSafariItem(PlaceModel place) {
+    final searchableText = [
+      place.name,
+      place.category,
+      ...place.interestTags,
+    ].join(' ').toLowerCase();
+
+    return searchableText.contains('safari');
+  }
+
+  bool get _isLuxurySearchOrFilterActive {
+    return widget.selectedMode == 'Luxury' &&
+        (searchText.trim().isNotEmpty || isLuxuryFilterActive);
+  }
+
   List<PlaceModel> _samplePlacesForSelectedFilter() {
     final type = selectedTypeFilter;
     if (type == null) {
       return SampleData.places;
     }
     return SampleData.places.where((place) => place.type == type).toList();
+  }
+
+  List<PlaceModel> _fallbackPlacesForCurrentMode() {
+    if (widget.selectedMode == 'Luxury' || widget.selectedMode == 'Night') {
+      return [];
+    }
+    return _samplePlacesForSelectedFilter();
+  }
+
+  void _handleSuggestionTap(TravelItemSuggestion suggestion) {
+    if (widget.selectedMode == 'Night' || widget.selectedMode == 'Luxury') {
+      _suggestionsDebounce?.cancel();
+      _suggestionsRequestId++;
+      setState(() {
+        searchText = suggestion.value;
+        searchSuggestions = [];
+        isLoadingSuggestions = false;
+      });
+      searchController.text = suggestion.value;
+      searchController.selection = TextSelection.collapsed(
+        offset: searchController.text.length,
+      );
+      return;
+    }
+
+    _loadPlacesForSuggestion(suggestion);
+  }
+
+  String get _luxurySectionTitle {
+    if (selectedType == 'Activities') return 'Exclusive activities';
+    if (selectedType == 'Hotels') return 'Luxury hotels';
+    return 'Fine dining restaurants';
   }
 
   String get _activeFilterLabel {
@@ -562,12 +851,61 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                     prefixIcon: Icon(Icons.search, color: accentColor),
                     suffixIcon: !_isNormalMode(widget.selectedMode)
-                        ? searchText.isEmpty
-                              ? Icon(Icons.tune, color: accentColor)
-                              : IconButton(
-                                  onPressed: _clearSearch,
-                                  icon: Icon(Icons.close, color: accentColor),
-                                )
+                        ? widget.selectedMode == 'Luxury'
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Filters',
+                                    onPressed: _showLuxuryFilterSheet,
+                                    icon: Icon(
+                                      Icons.tune,
+                                      color: isLuxuryFilterActive
+                                          ? const Color(0xFFFFF8E1)
+                                          : accentColor,
+                                    ),
+                                  ),
+                                  if (searchText.isNotEmpty ||
+                                      isLuxuryFilterActive)
+                                    IconButton(
+                                      tooltip: 'Clear search',
+                                      onPressed: _clearSearch,
+                                      icon: Icon(
+                                        Icons.close,
+                                        color: accentColor,
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : widget.selectedMode == 'Night'
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Filters',
+                                        onPressed: _showNightFilterSheet,
+                                        icon: Icon(
+                                          Icons.tune,
+                                          color: accentColor,
+                                        ),
+                                      ),
+                                      if (searchText.isNotEmpty)
+                                        IconButton(
+                                          tooltip: 'Clear search',
+                                          onPressed: _clearSearch,
+                                          icon: Icon(
+                                            Icons.close,
+                                            color: accentColor,
+                                          ),
+                                        ),
+                                    ],
+                                  )
+                            : searchText.isEmpty
+                                ? Icon(Icons.tune, color: accentColor)
+                                : IconButton(
+                                    onPressed: _clearSearch,
+                                    icon: Icon(Icons.close, color: accentColor),
+                                  )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -611,14 +949,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   onClear: _clearTypeFilter,
                 ),
 
-              if (!isLuxury && !isNight)
-                _SearchSuggestionsDropdown(
-                  suggestions: searchSuggestions,
-                  isLoading: isLoadingSuggestions,
-                  accentColor: accentColor,
-                  borderColor: borderColor,
-                  onSuggestionTap: _loadPlacesForSuggestion,
-                ),
+              _SearchSuggestionsDropdown(
+                suggestions: searchSuggestions,
+                isLoading: isLoadingSuggestions,
+                accentColor: accentColor,
+                borderColor: borderColor,
+                isLuxury: isLuxury,
+                onSuggestionTap: _handleSuggestionTap,
+              ),
 
               const SizedBox(height: 24),
 
@@ -715,7 +1053,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
                 const SizedBox(height: 14),
 
-                ..._getNightCards(),
+                ..._getTypeCards(isLuxury: false, isNight: true),
               ] else if (isLuxury) ...[
                 Text(
                   'Browse premium services',
@@ -780,11 +1118,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 24),
 
                 Text(
-                  selectedType == 'Activities'
-                      ? 'Exclusive activities'
-                      : selectedType == 'Hotels'
-                      ? 'Luxury hotels'
-                      : 'Fine dining',
+                  _luxurySectionTitle,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
@@ -823,118 +1157,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<Widget> _getTypeCards({required bool isLuxury, required bool isNight}) {
-    final query = searchText.trim().toLowerCase();
-
-    if (isNight) {
-      final nightPlaces = _getNightPlaces();
-
-      final filteredNightPlaces = nightPlaces.where((place) {
-        final matchesType = selectedType == 'Activities'
-            ? place['type'] == 'activity'
-            : selectedType == 'Hotels'
-            ? place['type'] == 'hotel'
-            : place['type'] == 'restaurant';
-
-        final searchableText = [
-          place['title'],
-          place['location'],
-          place['category'],
-          place['type'],
-        ].join(' ').toLowerCase();
-
-        final matchesSearch = query.isEmpty || searchableText.contains(query);
-
-        return matchesType && matchesSearch;
-      }).toList();
-
-      if (filteredNightPlaces.isEmpty) {
-        return const [
-          Padding(
-            padding: EdgeInsets.only(top: 20),
-            child: Center(
-              child: Text(
-                'No nightlife results found.',
-                style: TextStyle(
-                  color: Color(0xFFB8B8D1),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ];
-      }
-
-      return filteredNightPlaces.map((place) {
-        return _ExploreCard(
-          title: place['title'] as String,
-          location: place['location'] as String,
-          category: place['category'] as String,
-          price: place['price'] as String,
-          rating: place['rating'] as String,
-          duration: place['duration'] as String,
-          icon: place['icon'] as IconData,
-          isLuxury: false,
-          isNight: true,
-        );
-      }).toList();
-    }
-
-    if (isLuxury) {
-      final luxuryPlaces = _getLuxuryPlaces();
-
-      final filteredLuxuryPlaces = luxuryPlaces.where((place) {
-        final matchesType = selectedType == 'Activities'
-            ? place['type'] == 'activity'
-            : selectedType == 'Hotels'
-            ? place['type'] == 'hotel'
-            : place['type'] == 'restaurant';
-
-        final searchableText = [
-          place['title'],
-          place['location'],
-          place['category'],
-          place['type'],
-        ].join(' ').toLowerCase();
-
-        final matchesSearch = query.isEmpty || searchableText.contains(query);
-
-        return matchesType && matchesSearch;
-      }).toList();
-
-      if (filteredLuxuryPlaces.isEmpty) {
-        return const [
-          Padding(
-            padding: EdgeInsets.only(top: 20),
-            child: Center(
-              child: Text(
-                'No premium results found.',
-                style: TextStyle(
-                  color: Color(0xFFB8B8B8),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ];
-      }
-
-      return filteredLuxuryPlaces.map((place) {
-        return _ExploreCard(
-          title: place['title'] as String,
-          location: place['location'] as String,
-          category: place['category'] as String,
-          price: place['price'] as String,
-          rating: place['rating'] as String,
-          duration: place['duration'] as String,
-          icon: place['icon'] as IconData,
-          isLuxury: true,
-          isNight: false,
-        );
-      }).toList();
-    }
-
     if (isLoadingPlaces) {
       return const [
         Padding(
@@ -947,19 +1169,31 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final cards = <Widget>[
       if (placesError != null)
         _ExploreErrorBanner(
-          message: 'Could not load live places. Showing saved places instead.',
+          message: isLuxury
+              ? 'Could not load luxury places.'
+              : isNight
+              ? 'Could not load nightlife places.'
+              : 'Could not load live places. Showing saved places instead.',
         ),
     ];
 
     if (normalPlaces.isEmpty) {
       cards.add(
-        const Padding(
-          padding: EdgeInsets.only(top: 20),
+        Padding(
+          padding: const EdgeInsets.only(top: 20),
           child: Center(
             child: Text(
-              'No results found.',
+              isLuxury
+                  ? 'No luxury places found.'
+                  : isNight
+                  ? 'No nightlife places found.'
+                  : 'No results found.',
               style: TextStyle(
-                color: Color(0xFF6B7280),
+                color: isLuxury
+                    ? Color(0xFFB8B8B8)
+                    : isNight
+                    ? Color(0xFFB8B8D1)
+                    : Color(0xFF6B7280),
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
@@ -984,224 +1218,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
               : '${place.durationHours.toStringAsFixed(1)}h',
           icon: _getPlaceIcon(place),
           imageUrl: place.primaryThumbnailUrl ?? place.primaryImageUrl,
-          isLuxury: false,
+          isLuxury: isLuxury,
           isNight: false,
         );
       }),
     );
 
     return cards;
-  }
-
-  List<Widget> _getNightCards() {
-    final query = searchText.trim().toLowerCase();
-
-    final nightPlaces = _getNightPlaces();
-
-    final filteredNightPlaces = nightPlaces.where((place) {
-      final searchableText = [
-        place['title'],
-        place['location'],
-        place['category'],
-      ].join(' ').toLowerCase();
-
-      return query.isEmpty || searchableText.contains(query);
-    }).toList();
-
-    if (filteredNightPlaces.isEmpty) {
-      return const [
-        Padding(
-          padding: EdgeInsets.only(top: 20),
-          child: Center(
-            child: Text(
-              'No nightlife results found.',
-              style: TextStyle(
-                color: Color(0xFFB8B8D1),
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ];
-    }
-
-    return filteredNightPlaces.map((place) {
-      return _ExploreCard(
-        title: place['title'] as String,
-        location: place['location'] as String,
-        category: place['category'] as String,
-        price: place['price'] as String,
-        rating: place['rating'] as String,
-        duration: place['duration'] as String,
-        icon: place['icon'] as IconData,
-        isLuxury: false,
-        isNight: true,
-      );
-    }).toList();
-  }
-
-  List<Map<String, Object>> _getLuxuryPlaces() {
-    return [
-      {
-        'type': 'activity',
-        'title': 'Private Scenic Flight',
-        'location': 'Swiss Alps, Switzerland',
-        'category': 'Private tour',
-        'price': '\$1450',
-        'rating': '4.9',
-        'duration': '6h',
-        'icon': Icons.flight_takeoff,
-      },
-      {
-        'type': 'activity',
-        'title': 'Luxury Yacht Escape',
-        'location': 'Santorini, Greece',
-        'category': 'Yacht experience',
-        'price': '\$1800',
-        'rating': '4.9',
-        'duration': '1 day',
-        'icon': Icons.sailing_outlined,
-      },
-      {
-        'type': 'activity',
-        'title': 'Helicopter City Tour',
-        'location': 'Dubai, UAE',
-        'category': 'VIP adventure',
-        'price': '\$980',
-        'rating': '4.8',
-        'duration': '3h',
-        'icon': Icons.airplanemode_active,
-      },
-      {
-        'type': 'hotel',
-        'title': 'Royal Marina Suite',
-        'location': 'Dubai, UAE',
-        'category': '5-star luxury hotel',
-        'price': '\$620',
-        'rating': '4.9',
-        'duration': 'per night',
-        'icon': Icons.hotel_outlined,
-      },
-      {
-        'type': 'hotel',
-        'title': 'Private Island Villa',
-        'location': 'Maldives',
-        'category': 'Private villa',
-        'price': '\$1250',
-        'rating': '5.0',
-        'duration': 'per night',
-        'icon': Icons.villa_outlined,
-      },
-      {
-        'type': 'hotel',
-        'title': 'Alpine Palace Resort',
-        'location': 'Bavaria, Germany',
-        'category': 'Mountain resort',
-        'price': '\$780',
-        'rating': '4.9',
-        'duration': 'per night',
-        'icon': Icons.apartment_outlined,
-      },
-      {
-        'type': 'restaurant',
-        'title': 'Skyline Fine Dining',
-        'location': 'Dubai, UAE',
-        'category': 'Fine dining',
-        'price': '\$240',
-        'rating': '4.8',
-        'duration': '2h',
-        'icon': Icons.dinner_dining_outlined,
-      },
-      {
-        'type': 'restaurant',
-        'title': 'Private Chef Table',
-        'location': 'Paris, France',
-        'category': 'Chef experience',
-        'price': '\$360',
-        'rating': '4.9',
-        'duration': '3h',
-        'icon': Icons.restaurant_menu,
-      },
-      {
-        'type': 'restaurant',
-        'title': 'Michelin Tasting Night',
-        'location': 'Tokyo, Japan',
-        'category': 'Luxury dining',
-        'price': '\$420',
-        'rating': '5.0',
-        'duration': '2.5h',
-        'icon': Icons.local_dining_outlined,
-      },
-    ];
-  }
-
-  List<Map<String, Object>> _getNightPlaces() {
-    return [
-      {
-        'title': 'Just Cavalli Club',
-        'location': 'Dubai, UAE',
-        'category': 'Nightclub',
-        'price': '\$\$\$',
-        'rating': '4.8',
-        'duration': '4.5h',
-        'icon': Icons.nightlife,
-      },
-      {
-        'title': 'Marseille Red Club',
-        'location': 'Marseille, France',
-        'category': 'Club',
-        'price': '\$\$',
-        'rating': '4.6',
-        'duration': '5h',
-        'icon': Icons.music_note,
-      },
-      {
-        'title': 'Club Ibiza Nightclub',
-        'location': 'Ibiza, Spain',
-        'category': 'Nightclub',
-        'price': '\$\$\$',
-        'rating': '4.7',
-        'duration': '4h',
-        'icon': Icons.nightlife_outlined,
-      },
-      {
-        'title': 'Skyline Rooftop Lounge',
-        'location': 'Dubai, UAE',
-        'category': 'Rooftop',
-        'price': '\$\$\$',
-        'rating': '4.8',
-        'duration': '3h',
-        'icon': Icons.roofing_outlined,
-      },
-      {
-        'title': 'Moonlight Bar',
-        'location': 'Bangkok, Thailand',
-        'category': 'Bar',
-        'price': '\$\$',
-        'rating': '4.7',
-        'duration': '2h',
-        'icon': Icons.local_bar,
-      },
-      {
-        'title': 'Neon Live Music Lounge',
-        'location': 'Tokyo, Japan',
-        'category': 'Live music',
-        'price': '\$\$',
-        'rating': '4.8',
-        'duration': '3h',
-        'icon': Icons.graphic_eq,
-      },
-      {
-        'title': 'Salento Dance Club',
-        'location': 'Salento, Italy',
-        'category': 'Dance club',
-        'price': '\$\$',
-        'rating': '4.5',
-        'duration': '4.5h',
-        'icon': Icons.album_outlined,
-      },
-    ];
   }
 
   IconData _getPlaceIcon(PlaceModel place) {
@@ -1353,6 +1376,7 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
   final bool isLoading;
   final Color accentColor;
   final Color borderColor;
+  final bool isLuxury;
   final ValueChanged<TravelItemSuggestion> onSuggestionTap;
 
   const _SearchSuggestionsDropdown({
@@ -1360,6 +1384,7 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
     required this.isLoading,
     required this.accentColor,
     required this.borderColor,
+    required this.isLuxury,
     required this.onSuggestionTap,
   });
 
@@ -1373,7 +1398,7 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(top: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isLuxury ? const Color(0xFF0B1020) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
         boxShadow: [
@@ -1401,10 +1426,12 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Text(
+                  Text(
                     'Searching...',
                     style: TextStyle(
-                      color: Color(0xFF6B7280),
+                      color: isLuxury
+                          ? const Color(0xFFB8B8B8)
+                          : const Color(0xFF6B7280),
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1437,8 +1464,10 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
                             suggestion.label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF111827),
+                            style: TextStyle(
+                              color: isLuxury
+                                  ? const Color(0xFFFFF8E1)
+                                  : const Color(0xFF111827),
                               fontSize: 13,
                               fontWeight: FontWeight.w900,
                             ),
@@ -1448,8 +1477,10 @@ class _SearchSuggestionsDropdown extends StatelessWidget {
                             _subtitleForSuggestion(suggestion),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF6B7280),
+                            style: TextStyle(
+                              color: isLuxury
+                                  ? const Color(0xFFB8B8B8)
+                                  : const Color(0xFF6B7280),
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
