@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://127.0.0.1:27017"
     database_name: str = "travel_planning_app"
+    secret_key: str = "triply-dev-secret-key-change-me"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24 * 7
     pexels_api_key: str = ""
     image_provider: str = "pexels"
     image_fetch_enabled: bool = False

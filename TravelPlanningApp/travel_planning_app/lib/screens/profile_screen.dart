@@ -1,8 +1,15 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'profile_option_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+import '../services/api_service.dart';
+import 'auth/create_account_screen.dart';
+import 'auth/edit_profile_screen.dart';
+import 'auth/login_screen.dart';
+
+class ProfileScreen extends StatefulWidget {
   final String selectedMode;
 
   const ProfileScreen({
@@ -11,9 +18,70 @@ class ProfileScreen extends StatelessWidget {
   });
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  Map<String, dynamic>? currentUser;
+  bool isLoadingUser = true;
+
+  @override
+  void initState() {
+    super.initState();
+    loadUser();
+  }
+
+  Future<void> loadUser() async {
+    final user = await ApiService.getSavedUser();
+
+    if (!mounted) return;
+
+    setState(() {
+      currentUser = user;
+      isLoadingUser = false;
+    });
+  }
+
+  Future<void> openCreateAccount() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CreateAccountScreen(),
+      ),
+    );
+
+    if (result == true) {
+      loadUser();
+    }
+  }
+
+  Future<void> openLogin() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+      ),
+    );
+
+    if (result == true) {
+      loadUser();
+    }
+  }
+
+  Future<void> logout() async {
+    await ApiService.logout();
+
+    if (!mounted) return;
+
+    setState(() {
+      currentUser = null;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isLuxury = selectedMode == 'Luxury';
-    final isNight = selectedMode == 'Night';
+    final isLuxury = widget.selectedMode == 'Luxury';
+    final isNight = widget.selectedMode == 'Night';
 
     final backgroundColor = isLuxury
         ? const Color(0xFF030303)
@@ -114,18 +182,41 @@ class ProfileScreen extends StatelessWidget {
                             ? accentColor.withOpacity(0.18)
                             : isNight
                                 ? accentColor.withOpacity(0.18)
-                            : Colors.white.withOpacity(0.22),
+                                : Colors.white.withOpacity(0.22),
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: Colors.white.withOpacity(0.55),
                           width: 2,
                         ),
+                        image: currentUser?['avatar_url'] != null &&
+                                currentUser!['avatar_url'].toString().isNotEmpty
+                            ? DecorationImage(
+                                image: currentUser!['avatar_url']
+                                        .toString()
+                                        .startsWith('data:image')
+                                    ? MemoryImage(
+                                        base64Decode(
+                                          currentUser!['avatar_url']
+                                              .toString()
+                                              .split(',')
+                                              .last,
+                                        ),
+                                      )
+                                    : NetworkImage(
+                                        currentUser!['avatar_url'].toString(),
+                                      ) as ImageProvider,
+                                fit: BoxFit.cover,
+                              )
+                            : null,
                       ),
-                      child: Icon(
-                        Icons.person,
-                        color: isLuxury || isNight ? accentColor : Colors.white,
-                        size: 42,
-                      ),
+                      child: currentUser?['avatar_url'] == null ||
+                              currentUser!['avatar_url'].toString().isEmpty
+                          ? Icon(
+                              Icons.person,
+                              color: isLuxury || isNight ? accentColor : Colors.white,
+                              size: 42,
+                            )
+                          : null,
                     ),
 
                     const SizedBox(width: 16),
@@ -134,8 +225,8 @@ class ProfileScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Maria Tabet',
+                          Text(
+                            currentUser?['full_name'] ?? 'Guest',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 21,
@@ -144,7 +235,7 @@ class ProfileScreen extends StatelessWidget {
                           ),
                           SizedBox(height: 5),
                           Text(
-                            'maria@example.com',
+                            currentUser?['email'] ?? 'No email',
                             style: TextStyle(
                               color: isLuxury
                                   ? secondaryTextColor
@@ -157,7 +248,7 @@ class ProfileScreen extends StatelessWidget {
                           ),
                           SizedBox(height: 10),
                           Text(
-                            'Casual traveler',
+                            currentUser?['profile_label'] ?? 'Guest traveler',
                             style: TextStyle(
                               color: isLuxury
                                   ? secondaryTextColor
@@ -257,121 +348,6 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 28),
 
               Text(
-                'Favorite interests',
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w900,
-                  color: primaryTextColor,
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _InterestPill(
-                    text: 'Beach',
-                    icon: Icons.beach_access,
-                    isLuxury: isLuxury,
-                    isNight: isNight,
-                  ),
-                  _InterestPill(
-                    text: 'Culture',
-                    icon: Icons.account_balance,
-                    isLuxury: isLuxury,
-                    isNight: isNight,
-                  ),
-                  _InterestPill(
-                    text: 'Food',
-                    icon: Icons.restaurant,
-                    isLuxury: isLuxury,
-                    isNight: isNight,
-                  ),
-                  _InterestPill(
-                    text: 'Nature',
-                    icon: Icons.park,
-                    isLuxury: isLuxury,
-                    isNight: isNight,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 28),
-
-              Text(
-                'Payments and bookings',
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w900,
-                  color: primaryTextColor,
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              _AccountOption(
-                icon: Icons.credit_card,
-                title: 'Payment methods',
-                isLuxury: isLuxury,
-                isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileOptionScreen(
-                        title: 'Payment methods',
-                        icon: Icons.credit_card,
-                        description:
-                            'Manage saved cards, payment options, and billing details.',
-                      ),
-                    ),
-                  );
-                },
-              ),
-              _AccountOption(
-                icon: Icons.receipt_long,
-                title: 'Booking history',
-                isLuxury: isLuxury,
-                isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileOptionScreen(
-                        title: 'Booking history',
-                        icon: Icons.receipt_long,
-                        description:
-                            'View your previous bookings and completed travel purchases.',
-                      ),
-                    ),
-                  );
-                },
-              ),
-              _AccountOption(
-                icon: Icons.confirmation_number_outlined,
-                title: 'Active bookings',
-                isLuxury: isLuxury,
-                isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileOptionScreen(
-                        title: 'Active bookings',
-                        icon: Icons.confirmation_number_outlined,
-                        description:
-                            'See your current hotel, activity, and restaurant bookings.',
-                      ),
-                    ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 28),
-
-              Text(
                 'Account',
                 style: TextStyle(
                   fontSize: 19,
@@ -382,57 +358,53 @@ class ProfileScreen extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              _AccountOption(
-                icon: Icons.edit_outlined,
-                title: 'Edit profile',
-                isLuxury: isLuxury,
-                isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileOptionScreen(
-                        title: 'Edit profile',
-                        icon: Icons.edit_outlined,
-                        description:
-                            'Update your name, email, profile photo, and travel preferences.',
+              if (currentUser == null) ...[
+                _AccountOption(
+                  icon: Icons.person_add_alt_1,
+                  title: 'Create account',
+                  isLuxury: isLuxury,
+                  isNight: isNight,
+                  onTap: openCreateAccount,
+                ),
+                _AccountOption(
+                  icon: Icons.login,
+                  title: 'Log into account',
+                  isLuxury: isLuxury,
+                  isNight: isNight,
+                  onTap: openLogin,
+                ),
+              ] else ...[
+                _AccountOption(
+                  icon: Icons.edit_outlined,
+                  title: 'Edit profile',
+                  isLuxury: isLuxury,
+                  isNight: isNight,
+                  onTap: () async {
+                    if (currentUser == null) return;
+
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EditProfileScreen(
+                          currentUser: currentUser!,
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-              _AccountOption(
-                icon: Icons.notifications_outlined,
-                title: 'Notifications',
-                isLuxury: isLuxury,
-                isNight: isNight,
-              ),
-              _AccountOption(
-                icon: Icons.settings_outlined,
-                title: 'Settings',
-                isLuxury: isLuxury,
-                isNight: isNight,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileOptionScreen(
-                        title: 'Settings',
-                        icon: Icons.settings_outlined,
-                        description:
-                            'Change app settings, notifications, and account preferences.',
-                      ),
-                    ),
-                  );
-                },
-              ),
-              _AccountOption(
-                icon: Icons.logout,
-                title: 'Log out',
-                isDanger: true,
-                isLuxury: isLuxury,
-                isNight: isNight,
-              ),
+                    );
+
+                    if (result == true) {
+                      loadUser();
+                    }
+                  },
+                ),
+                _AccountOption(
+                  icon: Icons.logout,
+                  title: 'Log out',
+                  isDanger: true,
+                  isLuxury: isLuxury,
+                  isNight: isNight,
+                  onTap: logout,
+                ),
+              ],
             ],
           ),
         ),

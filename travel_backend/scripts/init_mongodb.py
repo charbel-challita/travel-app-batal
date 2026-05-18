@@ -59,7 +59,7 @@ VALIDATORS: dict[str, dict[str, Any]] = {
             "favorite_interests": {"bsonType": "array", "items": {"bsonType": "string"}},
             "profile_label": {"bsonType": ["string", "null"]},
             "stats": {"bsonType": "object"},
-            "auth_provider": {"enum": ["local", "google", "apple"]},
+            "auth_provider": {"enum": ["email", "local", "google", "apple"]},
             "is_active": {"bsonType": "bool"},
             "created_at": {"bsonType": "date"},
             "updated_at": {"bsonType": "date"},

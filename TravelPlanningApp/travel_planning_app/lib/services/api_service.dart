@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:travel_planning_app/models/place_model.dart';
 
 class TravelItemSuggestion {
@@ -344,5 +345,142 @@ class ApiService {
           return PlaceModel.fromApiJson(Map<String, dynamic>.from(item));
         })
         .toList(growable: false);
+  }
+
+  // ========================= AUTH =========================
+
+  static Future<Map<String, dynamic>> registerUser({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String password,
+  }) async {
+    final url = Uri.parse('$baseUrl/auth/register');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': email,
+        'password': password,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final prefs = await SharedPreferences.getInstance();
+
+      await prefs.setString('access_token', data['access_token']);
+      await prefs.setString('user', jsonEncode(data['user']));
+
+      return data;
+    } else {
+      throw Exception(data['detail'] ?? 'Registration failed');
+    }
+  }
+
+  static Future<Map<String, dynamic>> loginUser({
+    required String email,
+    required String password,
+  }) async {
+    final url = Uri.parse('$baseUrl/auth/login');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200) {
+      final prefs = await SharedPreferences.getInstance();
+
+      await prefs.setString('access_token', data['access_token']);
+      await prefs.setString('user', jsonEncode(data['user']));
+
+      return data;
+    } else {
+      throw Exception(data['detail'] ?? 'Login failed');
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getSavedUser() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final userString = prefs.getString('user');
+
+    if (userString == null) {
+      return null;
+    }
+
+    return jsonDecode(userString);
+  }
+
+  static Future<bool> isLoggedIn() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return prefs.getString('access_token') != null;
+  }
+
+  static Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.remove('access_token');
+    await prefs.remove('user');
+  }
+
+  static Future<Map<String, dynamic>> updateCurrentUser({
+    required String firstName,
+    required String lastName,
+    required String email,
+    String? password,
+    String? avatarUrl,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    if (token == null) {
+      throw Exception('You are not logged in');
+    }
+
+    final body = {
+      'first_name': firstName,
+      'last_name': lastName,
+      'email': email,
+      'avatar_url': avatarUrl,
+    };
+
+    if (password != null && password.trim().isNotEmpty) {
+      body['password'] = password.trim();
+    }
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/auth/me'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(body),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200) {
+      await prefs.setString('user', jsonEncode(data));
+      return data;
+    } else {
+      throw Exception(data['detail'] ?? 'Failed to update profile');
+    }
   }
 }

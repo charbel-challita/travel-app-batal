@@ -328,12 +328,12 @@ class HomeScreen extends StatelessWidget {
                           ? 'Fine dining'
                           : isNight
                               ? 'Bars'
-                              : 'Low budget',
+                              : 'Adventure',
                       icon: isLuxury
                           ? Icons.restaurant_menu
                           : isNight
                               ? Icons.local_bar
-                              : Icons.savings,
+                              : Icons.hiking,
                       isLuxury: isLuxury,
                       isNight: isNight,
                     ),
@@ -387,9 +387,18 @@ class HomeScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const DestinationDetailsScreen(
-                        destination: 'Bali',
-                        country: 'Indonesia',
+                      builder: (_) => DestinationDetailsScreen(
+                        destination: isLuxury
+                            ? 'Private Bavarian Alps Tour'
+                            : isNight
+                                ? 'Just Cavalli Club'
+                                : 'Island Escape Getaway',
+                        country: isLuxury
+                            ? 'Germany'
+                            : isNight
+                                ? 'UAE'
+                                : 'Indonesia',
+                        selectedMode: selectedMode,
                       ),
                     ),
                   );
@@ -437,6 +446,31 @@ class HomeScreen extends StatelessWidget {
                           : isLuxury
                               ? 'Private'
                               : 'Popular',
+                      imageAsset: isLuxury
+                          ? 'assets/images/halongbay.jpg'
+                          : isNight
+                              ? null
+                              : 'assets/images/rome.jpg',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DestinationDetailsScreen(
+                              destination: isLuxury
+                                  ? 'Halong Bay Seaplane Tour'
+                                  : isNight
+                                      ? 'Marseille Red Club'
+                                      : 'Rome First-Time Tour',
+                              country: isLuxury
+                                  ? 'Vietnam'
+                                  : isNight
+                                      ? 'France'
+                                      : 'Italy',
+                              selectedMode: selectedMode,
+                            ),
+                          ),
+                        );
+                      },
                       isLuxury: isLuxury,
                       isNight: isNight,
                     ),
@@ -444,17 +478,17 @@ class HomeScreen extends StatelessWidget {
                       title: isNight
                           ? 'Club Ibiza Nightclub'
                           : isLuxury
-                              ? 'Helicopter Tour'
+                              ? 'Dubai Elite Yacht Escape'
                               : 'Dubai City Highlights',
                       subtitle: isNight
                           ? 'Island party energy'
                           : isLuxury
-                              ? 'Premium skyline experience'
+                              ? 'Hotel, yacht & fine dining'
                               : 'Modern wonders await',
                       price: isNight
                           ? '\$\$\$'
                           : isLuxury
-                              ? '\$740'
+                              ? '\$1850'
                               : '\$290',
                       rating: isNight
                           ? '4.7'
@@ -466,6 +500,31 @@ class HomeScreen extends StatelessWidget {
                           : isLuxury
                               ? 'VIP'
                               : 'Trending',
+                      imageAsset: isLuxury
+                          ? 'assets/images/dubaiyacht.jpg'
+                          : isNight
+                              ? null
+                              : 'assets/images/dubai.png',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DestinationDetailsScreen(
+                              destination: isLuxury
+                                  ? 'Dubai Elite Yacht Escape'
+                                  : isNight
+                                      ? 'Club Ibiza Nightclub'
+                                      : 'Dubai City Highlights',
+                              country: isLuxury
+                                  ? 'UAE'
+                                  : isNight
+                                      ? 'Spain'
+                                      : 'UAE',
+                              selectedMode: selectedMode,
+                            ),
+                          ),
+                        );
+                      },
                       isLuxury: isLuxury,
                       isNight: isNight,
                     ),
@@ -478,12 +537,12 @@ class HomeScreen extends StatelessWidget {
                       subtitle: isNight
                           ? 'Latin dance nights'
                           : isLuxury
-                              ? 'Villa, yacht & curated dining'
+                              ? 'Private villa, yacht & sunset dining'
                               : 'Tradition meets tomorrow',
                       price: isNight
                           ? '\$\$'
                           : isLuxury
-                              ? '\$1250'
+                              ? '\$3450'
                               : '\$340',
                       rating: isNight ? '4.5' : '4.8',
                       tag: isNight
@@ -491,6 +550,31 @@ class HomeScreen extends StatelessWidget {
                           : isLuxury
                               ? 'Luxury'
                               : 'Sale',
+                      imageAsset: isLuxury
+                          ? 'assets/images/prvtislandstay.webp'
+                          : isNight
+                              ? null
+                              : 'assets/images/tokyo.webp',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DestinationDetailsScreen(
+                              destination: isLuxury
+                                  ? 'Private Island Stay'
+                                  : isNight
+                                      ? 'Salento Dance Club'
+                                      : 'Tokyo Discovery Tour',
+                              country: isLuxury
+                                  ? 'Maldives'
+                                  : isNight
+                                      ? 'Colombia'
+                                      : 'Japan',
+                              selectedMode: selectedMode,
+                            ),
+                          ),
+                        );
+                      },
                       isLuxury: isLuxury,
                       isNight: isNight,
                     ),
@@ -614,17 +698,17 @@ class _InterestChip extends StatelessWidget {
       margin: const EdgeInsets.only(right: 10),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
       decoration: BoxDecoration(
-        color: isLuxury || isNight ? const Color(0xFF111827) : const Color(0xFFEFFDF5),
+        color: isLuxury || isNight ? const Color(0xFF111827) : const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: isLuxury
               ? const Color(0xFFE8C766).withOpacity(0.45)
               : isNight
                   ? const Color(0xFFA855F7).withOpacity(0.35)
-                  : const Color(0xFF22C55E),
+                  : const Color(0xFFBFDBFE),
         ),
       ),
-      child: Row(
+            child: Row(
         children: [
           Icon(
             icon,
@@ -633,7 +717,7 @@ class _InterestChip extends StatelessWidget {
                 ? const Color(0xFFE8C766)
                 : isNight
                     ? const Color(0xFFE879F9)
-                    : const Color(0xFF16A34A),
+                    : const Color(0xFF2563EB),
           ),
           const SizedBox(width: 6),
           Text(
@@ -643,7 +727,7 @@ class _InterestChip extends StatelessWidget {
                   ? const Color(0xFFE8C766)
                   : isNight
                       ? const Color(0xFFE879F9)
-                      : const Color(0xFF16A34A),
+                      : const Color(0xFF2563EB),
               fontWeight: FontWeight.w700,
               fontSize: 12,
             ),
@@ -677,19 +761,6 @@ class _SectionHeader extends StatelessWidget {
             fontSize: 18,
             fontWeight: FontWeight.w800,
             color: isLuxury || isNight ? Colors.white : const Color(0xFF111827),
-          ),
-        ),
-        const Spacer(),
-        Text(
-          actionText,
-          style: TextStyle(
-            color: isLuxury
-                ? const Color(0xFFE8C766)
-                : isNight
-                    ? const Color(0xFFA855F7)
-                    : const Color(0xFF2563EB),
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -737,24 +808,18 @@ class _SuggestedCard extends StatelessWidget {
             Container(
               width: 125,
               decoration: BoxDecoration(
-                color: isLuxury || isNight ? const Color(0xFF0B1020) : const Color(0xFFE0F2FE),
-                borderRadius: BorderRadius.horizontal(
+                borderRadius: const BorderRadius.horizontal(
                   left: Radius.circular(18),
                 ),
-              ),
-              child: Center(
-                child: Icon(
-                  isLuxury
-                      ? Icons.diamond_outlined
-                      : isNight
-                          ? Icons.nightlife
-                          : Icons.landscape_outlined,
-                  color: isLuxury
-                      ? const Color(0xFFE8C766)
-                      : isNight
-                          ? const Color(0xFFA855F7)
-                          : const Color(0xFF2563EB),
-                  size: 56,
+                image: DecorationImage(
+                  image: AssetImage(
+                    isLuxury
+                        ? 'assets/images/privatebavariantour.jpg'
+                        : isNight
+                            ? 'assets/images/justcavalli.jpg'
+                            : 'assets/images/baligetaway.png',
+                  ),
+                  fit: BoxFit.cover,
                 ),
               ),
             ),
@@ -864,7 +929,7 @@ class _SuggestedCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          isLuxury ? '8h' : isNight ? '5h' : '4.5h',
+                          isLuxury ? '8h' : isNight ? '5h' : '24h',
                           style: TextStyle(
                             fontSize: 11,
                             color: isLuxury
@@ -968,6 +1033,8 @@ class _PackageCard extends StatelessWidget {
   final String tag;
   final bool isLuxury;
   final bool isNight;
+  final String? imageAsset;
+  final VoidCallback? onTap;
 
   const _PackageCard({
     required this.title,
@@ -977,91 +1044,108 @@ class _PackageCard extends StatelessWidget {
     required this.tag,
     required this.isLuxury,
     required this.isNight,
+    this.imageAsset,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 132,
-      height: 220,
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        color: isLuxury
-            ? const Color(0xFF0B1020)
-            : isNight
-                ? const Color(0xFF111827)
-                : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 132,
+        height: 220,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
           color: isLuxury
-              ? const Color(0xFFE8C766).withOpacity(0.35)
+              ? const Color(0xFF0B1020)
               : isNight
-                  ? const Color(0xFFA855F7).withOpacity(0.35)
-                  : const Color(0xFFE5E7EB),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isLuxury || isNight ? 0.3 : 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+                  ? const Color(0xFF111827)
+                  : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isLuxury
+                ? const Color(0xFFE8C766).withOpacity(0.35)
+                : isNight
+                    ? const Color(0xFFA855F7).withOpacity(0.35)
+                    : const Color(0xFFE5E7EB),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 78,
-            decoration: BoxDecoration(
-              color: isLuxury || isNight ? const Color(0xFF0B1020) : const Color(0xFFDBEAFE),
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(18),
-              ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isLuxury || isNight ? 0.3 : 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
             ),
-            child: Stack(
-              children: [
-                Center(
-                  child: Icon(
-                    isLuxury ? Icons.workspace_premium_outlined : Icons.travel_explore,
-                    color: isLuxury
-                        ? const Color(0xFFE8C766)
-                        : isNight
-                            ? const Color(0xFFA855F7)
-                            : const Color(0xFF2563EB),
-                    size: 36,
-                  ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 78,
+              decoration: BoxDecoration(
+                color: isLuxury || isNight ? const Color(0xFF0B1020) : const Color(0xFFDBEAFE),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(18),
                 ),
-                Positioned(
-                  left: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isLuxury
-                          ? const Color(0xFFE8C766)
-                          : isNight
-                              ? const Color(0xFFA855F7)
-                              : const Color(0xFF2563EB),
-                      borderRadius: BorderRadius.circular(10),
+              ),
+              child: Stack(
+                children: [
+                  if (imageAsset != null)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(18),
+                      ),
+                      child: Image.asset(
+                        imageAsset!,
+                        width: double.infinity,
+                        height: 78,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  else
+                    Center(
+                      child: Icon(
+                        isLuxury ? Icons.workspace_premium_outlined : Icons.travel_explore,
+                        color: isLuxury
+                            ? const Color(0xFFE8C766)
+                            : isNight
+                                ? const Color(0xFFA855F7)
+                                : const Color(0xFF2563EB),
+                        size: 36,
+                      ),
                     ),
-                    child: Text(
-                      tag,
-                      style: TextStyle(
-                        color: isLuxury ? const Color(0xFF111827) : Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isLuxury
+                            ? const Color(0xFFE8C766)
+                            : isNight
+                                ? const Color(0xFFA855F7)
+                                : const Color(0xFF2563EB),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        tag,
+                        style: TextStyle(
+                          color: isLuxury ? const Color(0xFF111827) : Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(9),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            Padding(
+              padding: const EdgeInsets.all(9),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Text(
                   title,
                   maxLines: 2,
@@ -1089,51 +1173,35 @@ class _PackageCard extends StatelessWidget {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 12,
-                      color: isLuxury
-                          ? const Color(0xFFB8B8B8)
-                          : isNight
-                              ? const Color(0xFFB8B8D1)
-                              : const Color(0xFF9CA3AF),
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      isLuxury ? '1d' : isNight ? '4h' : '6h',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isLuxury
-                            ? const Color(0xFFB8B8B8)
-                            : isNight
-                                ? const Color(0xFFB8B8D1)
-                                : const Color(0xFF9CA3AF),
-                      ),
-                    ),
-                    const Spacer(),
                     Text(
                       price,
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: isLuxury
                             ? const Color(0xFFE8C766)
                             : isNight
                                 ? const Color(0xFFE879F9)
                                 : const Color(0xFF16A34A),
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(width: 5),
-                    const Icon(Icons.star, size: 12, color: Color(0xFFF59E0B)),
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.star,
+                      size: 14,
+                      color: Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(width: 2),
                     Text(
                       rating,
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 11,
                         color: isLuxury
                             ? const Color(0xFFB8B8B8)
                             : isNight
                                 ? const Color(0xFFB8B8D1)
                                 : const Color(0xFF9CA3AF),
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -1143,6 +1211,7 @@ class _PackageCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
