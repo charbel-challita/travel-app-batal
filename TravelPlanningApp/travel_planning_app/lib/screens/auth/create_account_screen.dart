@@ -19,7 +19,35 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   bool obscurePassword = true;
   String? errorMessage;
 
+  String? validateForm() {
+    if (firstNameController.text.trim().isEmpty) {
+      return 'First name is required.';
+    }
+
+    if (lastNameController.text.trim().isEmpty) {
+      return 'Last name is required.';
+    }
+
+    if (!ApiService.isValidEmail(emailController.text)) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (passwordController.text.trim().length < 6) {
+      return 'Password must be at least 6 characters.';
+    }
+
+    return null;
+  }
+
   Future<void> createAccount() async {
+    final validationError = validateForm();
+    if (validationError != null) {
+      setState(() {
+        errorMessage = validationError;
+      });
+      return;
+    }
+
     setState(() {
       isLoading = true;
       errorMessage = null;
@@ -37,7 +65,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() {
-        errorMessage = e.toString().replaceFirst('Exception: ', '');
+        errorMessage = ApiService.cleanErrorMessage(e);
       });
     } finally {
       if (mounted) {

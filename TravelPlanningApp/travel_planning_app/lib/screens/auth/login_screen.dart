@@ -17,7 +17,31 @@ class _LoginScreenState extends State<LoginScreen> {
   bool obscurePassword = true;
   String? errorMessage;
 
+  String? validateForm() {
+    if (emailController.text.trim().isEmpty) {
+      return 'Email is required.';
+    }
+
+    if (!ApiService.isValidEmail(emailController.text)) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (passwordController.text.trim().isEmpty) {
+      return 'Password is required.';
+    }
+
+    return null;
+  }
+
   Future<void> login() async {
+    final validationError = validateForm();
+    if (validationError != null) {
+      setState(() {
+        errorMessage = validationError;
+      });
+      return;
+    }
+
     setState(() {
       isLoading = true;
       errorMessage = null;
@@ -33,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() {
-        errorMessage = e.toString().replaceFirst('Exception: ', '');
+        errorMessage = ApiService.cleanErrorMessage(e);
       });
     } finally {
       if (mounted) {

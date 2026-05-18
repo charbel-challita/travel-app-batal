@@ -56,8 +56,18 @@ class TravelItemSuggestion {
   }
 }
 
+class _FriendlyApiException implements Exception {
+  final String message;
+
+  const _FriendlyApiException(this.message);
+}
+
 class ApiService {
   static const String baseUrl = 'http://127.0.0.1:8000/api/v1';
+  static const String networkErrorMessage =
+      'Cannot connect to server. Please try again.';
+  static const String unknownErrorMessage =
+      'Something went wrong. Please try again.';
 
   final http.Client _client;
 
@@ -357,6 +367,146 @@ class ApiService {
 
   // ========================= AUTH =========================
 
+  static bool isValidEmail(String email) {
+    final trimmedEmail = email.trim();
+    final atIndex = trimmedEmail.indexOf('@');
+    if (atIndex <= 0) {
+      return false;
+    }
+
+    final dotAfterAt = trimmedEmail.indexOf('.', atIndex + 1);
+    return dotAfterAt > atIndex + 1 && dotAfterAt < trimmedEmail.length - 1;
+  }
+
+  static String cleanErrorMessage(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '').trim();
+    return message.isEmpty ? unknownErrorMessage : message;
+  }
+
+  static Map<String, dynamic> _decodeJsonObject(String body) {
+    final decoded = jsonDecode(body);
+
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+
+    throw _FriendlyApiException(unknownErrorMessage);
+  }
+
+  static String _friendlyAuthError(
+    http.Response response, {
+    required String fallback,
+    bool isLogin = false,
+  }) {
+    if (isLogin && response.statusCode == 401) {
+      return 'Invalid email or password.';
+    }
+
+    try {
+      final decoded = _decodeJsonObject(response.body);
+      return _friendlyDetailMessage(
+        decoded['detail'],
+        statusCode: response.statusCode,
+        fallback: fallback,
+        isLogin: isLogin,
+      );
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  static String _friendlyDetailMessage(
+    dynamic detail, {
+    required int statusCode,
+    required String fallback,
+    required bool isLogin,
+  }) {
+    if (detail is List) {
+      for (final item in detail) {
+        if (item is Map) {
+          final message = _friendlyValidationItemMessage(item);
+          if (message != null) {
+            return message;
+          }
+        }
+      }
+      return fallback;
+    }
+
+    if (detail is String) {
+      return _friendlyStringMessage(
+        detail,
+        statusCode: statusCode,
+        fallback: fallback,
+        isLogin: isLogin,
+      );
+    }
+
+    return fallback;
+  }
+
+  static String? _friendlyValidationItemMessage(Map item) {
+    final loc = item['loc'];
+    final locText = loc is List ? loc.join(' ').toLowerCase() : '';
+    final rawMessage = (item['msg'] ?? '').toString();
+    final messageText = rawMessage.toLowerCase();
+
+    if (locText.contains('email') ||
+        messageText.contains('email') ||
+        messageText.contains('valid email')) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (locText.contains('password') ||
+        messageText.contains('password') ||
+        messageText.contains('at least 6') ||
+        messageText.contains('min_length')) {
+      return 'Password must be at least 6 characters.';
+    }
+
+    return rawMessage.trim().isEmpty ? null : rawMessage.trim();
+  }
+
+  static String _friendlyStringMessage(
+    String detail, {
+    required int statusCode,
+    required String fallback,
+    required bool isLogin,
+  }) {
+    final trimmedDetail = detail.trim();
+    final lowerDetail = trimmedDetail.toLowerCase();
+
+    if (isLogin &&
+        (statusCode == 401 ||
+            lowerDetail.contains('invalid') ||
+            lowerDetail.contains('incorrect'))) {
+      return 'Invalid email or password.';
+    }
+
+    if (statusCode == 409 ||
+        lowerDetail.contains('already registered') ||
+        lowerDetail.contains('already exists') ||
+        lowerDetail.contains('duplicate')) {
+      return 'This email is already registered.';
+    }
+
+    if (lowerDetail.contains('email')) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (lowerDetail.contains('password') ||
+        lowerDetail.contains('at least 6') ||
+        lowerDetail.contains('min_length')) {
+      return 'Password must be at least 6 characters.';
+    }
+
+    return trimmedDetail.isEmpty ? fallback : trimmedDetail;
+  }
+
   static Future<Map<String, dynamic>> registerUser({
     required String firstName,
     required String lastName,
@@ -365,30 +515,40 @@ class ApiService {
   }) async {
     final url = Uri.parse('$baseUrl/auth/register');
 
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'first_name': firstName,
-        'last_name': lastName,
-        'email': email,
-        'password': password,
-      }),
-    );
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'first_name': firstName,
+          'last_name': lastName,
+          'email': email,
+          'password': password,
+        }),
+      );
 
-    final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = _decodeJsonObject(response.body);
+        final prefs = await SharedPreferences.getInstance();
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('access_token', data['access_token']);
+        await prefs.setString('user', jsonEncode(data['user']));
 
-      await prefs.setString('access_token', data['access_token']);
-      await prefs.setString('user', jsonEncode(data['user']));
+        return data;
+      }
 
-      return data;
-    } else {
-      throw Exception(data['detail'] ?? 'Registration failed');
+      throw _FriendlyApiException(
+        _friendlyAuthError(
+          response,
+          fallback: unknownErrorMessage,
+        ),
+      );
+    } on _FriendlyApiException catch (error) {
+      throw Exception(error.message);
+    } catch (_) {
+      throw Exception(networkErrorMessage);
     }
   }
 
@@ -398,28 +558,39 @@ class ApiService {
   }) async {
     final url = Uri.parse('$baseUrl/auth/login');
 
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-      }),
-    );
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
+      );
 
-    final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final data = _decodeJsonObject(response.body);
+        final prefs = await SharedPreferences.getInstance();
 
-    if (response.statusCode == 200) {
-      final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('access_token', data['access_token']);
+        await prefs.setString('user', jsonEncode(data['user']));
 
-      await prefs.setString('access_token', data['access_token']);
-      await prefs.setString('user', jsonEncode(data['user']));
+        return data;
+      }
 
-      return data;
-    } else {
-      throw Exception(data['detail'] ?? 'Login failed');
+      throw _FriendlyApiException(
+        _friendlyAuthError(
+          response,
+          fallback: 'Invalid email or password.',
+          isLogin: true,
+        ),
+      );
+    } on _FriendlyApiException catch (error) {
+      throw Exception(error.message);
+    } catch (_) {
+      throw Exception(networkErrorMessage);
     }
   }
 
@@ -433,6 +604,45 @@ class ApiService {
     }
 
     return jsonDecode(userString);
+  }
+
+  static Future<Map<String, dynamic>?> getCurrentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    if (token == null || token.isEmpty) {
+      await logout();
+      return null;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded is! Map<String, dynamic>) {
+          await logout();
+          return null;
+        }
+
+        await prefs.setString('user', jsonEncode(decoded));
+        return decoded;
+      }
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await logout();
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<bool> isLoggedIn() async {
@@ -473,22 +683,32 @@ class ApiService {
       body['password'] = password.trim();
     }
 
-    final response = await http.put(
-      Uri.parse('$baseUrl/auth/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(body),
-    );
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
 
-    final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final data = _decodeJsonObject(response.body);
+        await prefs.setString('user', jsonEncode(data));
+        return data;
+      }
 
-    if (response.statusCode == 200) {
-      await prefs.setString('user', jsonEncode(data));
-      return data;
-    } else {
-      throw Exception(data['detail'] ?? 'Failed to update profile');
+      throw _FriendlyApiException(
+        _friendlyAuthError(
+          response,
+          fallback: unknownErrorMessage,
+        ),
+      );
+    } on _FriendlyApiException catch (error) {
+      throw Exception(error.message);
+    } catch (_) {
+      throw Exception(networkErrorMessage);
     }
   }
 }

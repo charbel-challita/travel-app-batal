@@ -32,7 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> loadUser() async {
-    final user = await ApiService.getSavedUser();
+    final user = await ApiService.getCurrentUser();
 
     if (!mounted) return;
 
@@ -118,6 +118,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         : isNight
             ? const Color(0xFFA855F7).withOpacity(0.35)
             : const Color(0xFFE5E7EB);
+    final isGuest = currentUser == null;
+    final savedTrips = isGuest ? '0' : '6';
+    final favorites = isGuest ? '0' : '12';
+    final pastTrips = isGuest ? '0' : '18';
+    final casualTrips = isGuest ? '0' : '9';
+    final nightlifeTrips = isGuest ? '0' : '6';
+    final luxuryTrips = isGuest ? '0' : '3';
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -271,7 +278,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Row(
                 children: [
                   _ProfileStatCard(
-                    number: '6',
+                    number: savedTrips,
                     label: 'Saved trips',
                     icon: Icons.bookmark,
                     isLuxury: isLuxury,
@@ -279,7 +286,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(width: 12),
                   _ProfileStatCard(
-                    number: '12',
+                    number: favorites,
                     label: 'Favorites',
                     icon: Icons.favorite,
                     isLuxury: isLuxury,
@@ -287,7 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(width: 12),
                   _ProfileStatCard(
-                    number: '18',
+                    number: pastTrips,
                     label: 'Past trips',
                     icon: Icons.history,
                     isLuxury: isLuxury,
@@ -319,7 +326,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     _TripTypeMiniCard(
                       title: 'Casual Trips',
-                      number: '9',
+                      number: casualTrips,
                       emoji: '🌴',
                       color: const Color(0xFF2563EB),
                       isLuxury: isLuxury,
@@ -327,7 +334,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     _TripTypeMiniCard(
                       title: 'Nightlife Trips',
-                      number: '6',
+                      number: nightlifeTrips,
                       emoji: '🍸',
                       color: const Color(0xFFC026D3),
                       isLuxury: isLuxury,
@@ -335,7 +342,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     _TripTypeMiniCard(
                       title: 'Luxury Trips',
-                      number: '3',
+                      number: luxuryTrips,
                       emoji: '👑',
                       color: const Color(0xFFD97706),
                       isLuxury: isLuxury,

@@ -83,7 +83,36 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     });
   }
 
+  String? validateForm() {
+    if (firstNameController.text.trim().isEmpty) {
+      return 'First name is required.';
+    }
+
+    if (lastNameController.text.trim().isEmpty) {
+      return 'Last name is required.';
+    }
+
+    if (!ApiService.isValidEmail(emailController.text)) {
+      return 'Please enter a valid email address.';
+    }
+
+    final newPassword = passwordController.text.trim();
+    if (newPassword.isNotEmpty && newPassword.length < 6) {
+      return 'Password must be at least 6 characters.';
+    }
+
+    return null;
+  }
+
   Future<void> saveProfile() async {
+    final validationError = validateForm();
+    if (validationError != null) {
+      setState(() {
+        errorMessage = validationError;
+      });
+      return;
+    }
+
     setState(() {
       isLoading = true;
       errorMessage = null;
@@ -104,7 +133,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() {
-        errorMessage = e.toString().replaceFirst('Exception: ', '');
+        errorMessage = ApiService.cleanErrorMessage(e);
       });
     } finally {
       if (mounted) {
