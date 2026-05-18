@@ -157,6 +157,9 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
     required String rating,
     required String duration,
     required List<String> tags,
+    required String itemType,
+    required String targetType,
+    required String sourceCollection,
   }) async {
     if (isSavingTrip) {
       return;
@@ -178,6 +181,9 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
         'price': price,
         'rating': rating,
         'duration': duration,
+        'item_type': itemType,
+        'target_type': targetType,
+        'source_collection': sourceCollection,
       });
 
       if (!mounted) return;
@@ -516,7 +522,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
     final packageImageUrl = backendPackage?.imageUrl;
     final packageImageAsset = backendPackage?.imageAsset;
 
-    final buttonText = isPackage ? 'Add Package to Plan' : 'Add to Plan';
+    final buttonText = 'Add Package to Plan';
 
     final includedItems = widget.destination == 'Halong Bay Seaplane Tour'
         ? [
@@ -750,13 +756,16 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
         ? 'ai_packages'
         : hasBackendPlace
             ? 'travel_items'
-            : 'hardcoded_package';
+            : isPackage
+                ? 'hardcoded_package'
+                : 'travel_items';
     _syncFavoriteState(itemKey);
 
     return Scaffold(
       backgroundColor: backgroundColor,
 
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: isPackage
+          ? SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: SizedBox(
@@ -775,6 +784,9 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                         rating: displayRating,
                         duration: displayDuration,
                         tags: displayTags,
+                        itemType: 'package',
+                        targetType: 'ai_package',
+                        sourceCollection: sourceCollection,
                       ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: accentColor,
@@ -794,7 +806,8 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
             ),
           ),
         ),
-      ),
+      )
+          : null,
 
       body: SafeArea(
         child: SingleChildScrollView(

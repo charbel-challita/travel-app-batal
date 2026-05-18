@@ -64,6 +64,12 @@ class TripService:
         user_id: str,
     ) -> TripResponse:
         payload = request.model_dump()
+        if not self._is_package_payload(payload):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only packages can be saved to trips.",
+            )
+
         payload["user_id"] = self._to_object_id(user_id)
         payload["travel_mode"] = self._normalize_travel_mode(payload.get("selected_mode"))
         payload["status"] = self._to_stored_status(payload.get("status")) or "saved"
@@ -125,6 +131,28 @@ class TripService:
             return normalized
 
         return None
+
+    def _is_package_payload(self, payload: dict) -> bool:
+        item_type = (payload.get("item_type") or "").strip().lower()
+        target_type = (payload.get("target_type") or "").strip().lower()
+        source_collection = (payload.get("source_collection") or "").strip().lower()
+        non_package_item_types = {
+            "activity",
+            "hotel",
+            "restaurant",
+            "nightlife",
+            "place",
+            "travel_item",
+        }
+
+        if item_type in non_package_item_types:
+            return False
+
+        return (
+            item_type in {"package", "ai_package"}
+            or target_type == "ai_package"
+            or source_collection in {"ai_packages", "hardcoded_package"}
+        )
 
     def _price_to_number(self, value: str | None) -> float | None:
         if not value:

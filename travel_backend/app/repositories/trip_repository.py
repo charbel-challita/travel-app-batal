@@ -8,6 +8,23 @@ from pymongo import ReturnDocument
 
 COLLECTION_NAME = "trips"
 ALLOWED_STATUSES = {"saved", "ongoing", "completed"}
+NON_PACKAGE_ITEM_TYPES = {
+    "activity",
+    "hotel",
+    "restaurant",
+    "nightlife",
+    "place",
+    "travel_item",
+}
+
+
+def _package_trip_query(user_id: ObjectId) -> dict[str, Any]:
+    return {
+        "user_id": user_id,
+        "item_type": {"$nin": list(NON_PACKAGE_ITEM_TYPES)},
+        "target_type": {"$ne": "travel_item"},
+        "source_collection": {"$ne": "travel_items"},
+    }
 
 
 def _serialize_trip(trip: dict[str, Any]) -> dict[str, Any]:
@@ -29,7 +46,7 @@ class TripRepository:
         user_id: ObjectId,
         status: str | None = None,
     ) -> list[dict[str, Any]]:
-        query: dict[str, Any] = {"user_id": user_id}
+        query: dict[str, Any] = _package_trip_query(user_id)
 
         if status in ALLOWED_STATUSES:
             query["status"] = status
@@ -44,7 +61,7 @@ class TripRepository:
         pipeline = [
             {
                 "$match": {
-                    "user_id": user_id,
+                    **_package_trip_query(user_id),
                     "status": {"$in": list(ALLOWED_STATUSES)},
                 },
             },
@@ -64,7 +81,7 @@ class TripRepository:
         }
 
         pipeline = [
-            {"$match": {"user_id": user_id}},
+            {"$match": _package_trip_query(user_id)},
             {"$group": {"_id": "$travel_mode", "count": {"$sum": 1}}},
         ]
 

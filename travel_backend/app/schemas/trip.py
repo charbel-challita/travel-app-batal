@@ -18,6 +18,9 @@ class TripCreateRequest(BaseModel):
     price: str = ""
     rating: str = ""
     duration: str = ""
+    item_type: str = ""
+    target_type: str = ""
+    source_collection: str = ""
 
 
 class TripStatusUpdateRequest(BaseModel):
@@ -36,6 +39,9 @@ class TripResponse(BaseModel):
     price: str = ""
     rating: str = ""
     duration: str = ""
+    item_type: str = ""
+    target_type: str = ""
+    source_collection: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
