@@ -4,6 +4,7 @@ from typing import Any
 
 from bson import ObjectId
 from fastapi import HTTPException, status
+from pymongo import ReturnDocument
 
 from app.db.mongodb import get_database
 from app.schemas.ai_package import ManualPackageCreateRequest
@@ -577,6 +578,93 @@ async def delete_user_manual_package(package_id: str, user_id: ObjectId) -> bool
     return result.modified_count == 1
 
 
+async def add_item_to_user_manual_package(
+    package_id: str,
+    user_id: ObjectId,
+    item_id: str | None,
+    item_type: str | None,
+    item_payload: dict[str, Any] | None = None,
+) -> dict | None:
+    if not ObjectId.is_valid(package_id):
+        return None
+
+    db = get_database()
+    package = await db[COLLECTION_NAME].find_one(
+        {
+            "_id": ObjectId(package_id),
+            "user_id": user_id,
+            "visibility": "private",
+            "source": "user_manual",
+            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+        }
+    )
+    if not package:
+        return None
+
+    item = await _load_single_travel_item(item_id, item_type, item_payload or {})
+    normalized_type = str(item.get("type") or item_type or "").strip().lower()
+    if normalized_type not in {"hotel", "activity", "restaurant", "nightlife"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported item type.",
+        )
+
+    if (
+        str(item.get("country") or "").strip().lower()
+        != str(package.get("country") or "").strip().lower()
+        or str(item.get("city") or "").strip().lower()
+        != str(package.get("city") or "").strip().lower()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="All package items must be from the same city.",
+        )
+
+    included_items = _normalized_included_items(package.get("included_items"))
+    snapshot = _snapshot_item(item)
+
+    if normalized_type == "hotel":
+        included_items["hotel"] = snapshot
+    else:
+        list_key = {
+            "activity": "activities",
+            "restaurant": "restaurants",
+            "nightlife": "nightlife",
+        }[normalized_type]
+        if not any(_same_snapshot_item(existing, snapshot) for existing in included_items[list_key]):
+            included_items[list_key].append(snapshot)
+
+    included_rules = {
+        "hotel": 1 if included_items["hotel"] else 0,
+        "activity": len(included_items["activities"]),
+        "restaurant": len(included_items["restaurants"]),
+        "nightlife": len(included_items["nightlife"]),
+    }
+    all_items = _flatten_included_items(included_items)
+    ratings = [float(item.get("rating") or 0) for item in all_items if item.get("rating")]
+    price = sum(float(item.get("cost") or 0) for item in all_items)
+    rating = round(sum(ratings) / len(ratings), 1) if ratings else 0
+    image_url = _select_cover_image_from_snapshots(included_items)
+
+    updated = await db[COLLECTION_NAME].find_one_and_update(
+        {"_id": ObjectId(package_id), "user_id": user_id},
+        {
+            "$set": {
+                "included_items": included_items,
+                "included_rules": included_rules,
+                "price": price,
+                "rating": rating,
+                "image_url": image_url or package.get("image_url") or "",
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        return None
+    return _serialize_package(updated)
+
+
 def _manual_travel_mode(mode: str) -> str:
     normalized = mode.strip().lower()
     if normalized == "luxury":
@@ -647,6 +735,113 @@ async def _load_selected_travel_items(
         "restaurants": load_group(restaurant_ids, "restaurant"),
         "nightlife": load_group(nightlife_ids, "nightlife"),
     }
+
+
+async def _load_single_travel_item(
+    item_id: str | None,
+    item_type: str | None,
+    item_payload: dict[str, Any],
+) -> dict[str, Any]:
+    db = get_database()
+
+    if item_id and ObjectId.is_valid(item_id):
+        item = await db["travel_items"].find_one(
+            {"_id": ObjectId(item_id), "is_active": True}
+        )
+        if item:
+            return item
+
+    payload_id = str(item_payload.get("_id") or item_payload.get("id") or "").strip()
+    if payload_id and ObjectId.is_valid(payload_id):
+        item = await db["travel_items"].find_one(
+            {"_id": ObjectId(payload_id), "is_active": True}
+        )
+        if item:
+            return item
+
+    name = str(
+        item_payload.get("name") or item_payload.get("title") or ""
+    ).strip()
+    country = str(item_payload.get("country") or "").strip()
+    city = str(item_payload.get("city") or "").strip()
+    normalized_type = str(item_type or item_payload.get("type") or "").strip().lower()
+
+    if name and country and city and normalized_type:
+        item = await db["travel_items"].find_one(
+            {
+                "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
+                "country_normalized": country.lower(),
+                "city_normalized": city.lower(),
+                "type": normalized_type,
+                "is_active": True,
+            }
+        )
+        if item:
+            return item
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Selected travel item was not found.",
+    )
+
+
+def _normalized_included_items(value: Any) -> dict[str, Any]:
+    included = value if isinstance(value, dict) else {}
+    hotel = included.get("hotel")
+    return {
+        "hotel": hotel if isinstance(hotel, dict) else {},
+        "activities": included.get("activities")
+        if isinstance(included.get("activities"), list)
+        else [],
+        "restaurants": included.get("restaurants")
+        if isinstance(included.get("restaurants"), list)
+        else [],
+        "nightlife": included.get("nightlife")
+        if isinstance(included.get("nightlife"), list)
+        else [],
+    }
+
+
+def _same_snapshot_item(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_id = str(left.get("_id") or left.get("id") or "").strip()
+    right_id = str(right.get("_id") or right.get("id") or "").strip()
+    if left_id and right_id:
+        return left_id == right_id
+
+    return (
+        str(left.get("name") or "").strip().lower()
+        == str(right.get("name") or "").strip().lower()
+        and str(left.get("country") or "").strip().lower()
+        == str(right.get("country") or "").strip().lower()
+        and str(left.get("city") or "").strip().lower()
+        == str(right.get("city") or "").strip().lower()
+        and str(left.get("type") or "").strip().lower()
+        == str(right.get("type") or "").strip().lower()
+    )
+
+
+def _flatten_included_items(included_items: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if included_items.get("hotel"):
+        items.append(included_items["hotel"])
+    for key in ["activities", "restaurants", "nightlife"]:
+        items.extend(
+            item for item in included_items.get(key, []) if isinstance(item, dict)
+        )
+    return items
+
+
+def _select_cover_image_from_snapshots(included_items: dict[str, Any]) -> str:
+    for key in ["activities", "hotel", "restaurants", "nightlife"]:
+        value = included_items.get(key)
+        items = [value] if isinstance(value, dict) else value
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            image_url = _first_image_url(item)
+            if image_url:
+                return image_url
+    return ""
 
 
 def _validate_same_city(

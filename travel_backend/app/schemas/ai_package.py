@@ -27,6 +27,12 @@ class ManualPackageCreateRequest(BaseModel):
     nightlife_ids: list[str] = Field(default_factory=list)
 
 
+class ManualPackageAddItemRequest(BaseModel):
+    item_id: str | None = None
+    item_type: str | None = None
+    item: dict = Field(default_factory=dict)
+
+
 class AIPackageResponse(BaseModel):
     id: str = Field(alias="_id")
     title: str

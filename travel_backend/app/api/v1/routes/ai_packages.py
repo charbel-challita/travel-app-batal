@@ -16,11 +16,13 @@ from app.schemas.ai_package import (
     AIPackageResponse,
     AIPackageSuggestionsResponse,
     ManualPackageCreateRequest,
+    ManualPackageAddItemRequest,
 )
 from app.schemas.user import UserResponse
 from app.services.ai_package_service import (
     create_manual_ai_package,
     delete_manual_ai_package,
+    add_item_to_manual_ai_package,
     get_accessible_ai_package,
     get_ai_package,
     get_ai_package_suggestions,
@@ -231,6 +233,24 @@ async def list_my_packages(
     current_user: UserResponse = Depends(get_current_user),
 ):
     return await get_my_ai_packages(ObjectId(current_user.id))
+
+
+@router.post("/{package_id}/items", response_model=AIPackageResponse)
+async def add_manual_package_item(
+    package_id: str,
+    request: ManualPackageAddItemRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    package = await add_item_to_manual_ai_package(
+        package_id,
+        ObjectId(current_user.id),
+        request.item_id,
+        request.item_type,
+        request.item,
+    )
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return package
 
 
 @router.delete("/{package_id}", status_code=status.HTTP_204_NO_CONTENT)

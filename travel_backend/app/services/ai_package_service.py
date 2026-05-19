@@ -1,4 +1,5 @@
 from app.repositories.ai_package_repository import (
+    add_item_to_user_manual_package,
     create_user_manual_package,
     delete_user_manual_package,
     get_accessible_ai_package_by_id,
@@ -80,3 +81,19 @@ async def create_manual_ai_package(
 
 async def delete_manual_ai_package(package_id: str, user_id) -> bool:
     return await delete_user_manual_package(package_id, user_id)
+
+
+async def add_item_to_manual_ai_package(
+    package_id: str,
+    user_id,
+    item_id: str | None,
+    item_type: str | None,
+    item: dict,
+) -> dict | None:
+    return await add_item_to_user_manual_package(
+        package_id,
+        user_id,
+        item_id,
+        item_type,
+        item,
+    )

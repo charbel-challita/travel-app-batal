@@ -62,6 +62,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   int _suggestionsRequestId = 0;
   bool isLoadingSuggestions = false;
   List<TravelItemSuggestion> searchSuggestions = [];
+  final Set<String> favoriteItemKeys = {};
 
   @override
   void initState() {
@@ -569,6 +570,218 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   void _clearTypeFilter() {
     _applyTypeFilter(null);
+  }
+
+  String _itemKeyFromTitle(String title) {
+    return title
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  Future<void> _toggleExploreFavorite(PlaceModel place) async {
+    final itemKey = _itemKeyFromTitle(place.name);
+
+    try {
+      final isCurrentlyFavorite = favoriteItemKeys.contains(itemKey)
+          ? true
+          : await _apiService.checkFavorite(itemKey);
+
+      if (isCurrentlyFavorite) {
+        await _apiService.removeFavorite(itemKey);
+        if (!mounted) return;
+        setState(() {
+          favoriteItemKeys.remove(itemKey);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Removed from favorites.')),
+        );
+        return;
+      }
+
+      await _apiService.addFavorite({
+        'target_id': itemKey,
+        'target_type': place.type,
+        'item_key': itemKey,
+        'item_type': place.type,
+        'title': place.name,
+        'location': '${place.city}, ${place.country}',
+        'image': place.primaryThumbnailUrl ?? place.primaryImageUrl ?? '',
+        'selected_mode': widget.selectedMode,
+        'tags': place.interestTags.take(3).toList(growable: false),
+        'price': '\$${place.cost.toStringAsFixed(0)}',
+        'rating': place.rating.toStringAsFixed(1),
+        'duration': place.type == 'hotel'
+            ? 'per night'
+            : '${place.durationHours.toStringAsFixed(1)}h',
+        'source_collection': 'travel_items',
+      });
+
+      if (!mounted) return;
+      setState(() {
+        favoriteItemKeys.add(itemKey);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Added to favorites.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = ApiService.cleanErrorMessage(error).toLowerCase().contains('log in')
+          ? 'Please log in to add favorites.'
+          : 'Could not update favorite.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  Future<void> _showAddToPackageSheet(PlaceModel place) async {
+    if (!await ApiService.isLoggedIn()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to add items to packages.')),
+      );
+      return;
+    }
+
+    try {
+      final packages = await _apiService.getMyPackages();
+      final compatiblePackages = packages
+          .where(
+            (package) =>
+                package.country.toLowerCase() == place.country.toLowerCase() &&
+                package.city.toLowerCase() == place.city.toLowerCase(),
+          )
+          .toList(growable: false);
+
+      if (!mounted) return;
+
+      if (compatiblePackages.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No matching package for this city. Create a package first.'),
+          ),
+        );
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        builder: (context) {
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Choose package',
+                          style: TextStyle(
+                            color: Color(0xFF111827),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...compatiblePackages.map((package) {
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.inventory_2_outlined,
+                        color: Color(0xFF2563EB),
+                      ),
+                      title: Text(
+                        package.title,
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      subtitle: Text('${package.city}, ${package.country}'),
+                      onTap: () => _addPlaceToPackage(package.id, place),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = ApiService.cleanErrorMessage(error).toLowerCase().contains('log in')
+          ? 'Please log in to add items to packages.'
+          : ApiService.cleanErrorMessage(error);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  Future<void> _addPlaceToPackage(String packageId, PlaceModel place) async {
+    try {
+      await _apiService.addItemToManualPackage(packageId, _placeToPackagePayload(place));
+      if (!mounted) return;
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(place.type == 'hotel' ? 'Hotel replaced.' : 'Added to package.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Map<String, dynamic> _placeToPackagePayload(PlaceModel place) {
+    return {
+      'id': place.id,
+      '_id': place.id,
+      'name': place.name,
+      'type': place.type,
+      'country': place.country,
+      'city': place.city,
+      'category': place.category,
+      'cost': place.cost,
+      'price': place.cost,
+      'currency': place.currency,
+      'rating': place.rating,
+      'duration_hours': place.durationHours,
+      'interest_tags': place.interestTags,
+      'images': place.images
+          .map(
+            (image) => {
+              'url': image.url,
+              'thumbnail_url': image.thumbnailUrl,
+              'source': image.source,
+              'alt': image.alt,
+              'photographer': image.photographer,
+              'source_url': image.sourceUrl,
+            },
+          )
+          .toList(growable: false),
+    };
   }
 
   bool _isNormalMode(String mode) {
@@ -1116,6 +1329,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
           imageUrl: place.primaryThumbnailUrl ?? place.primaryImageUrl,
           isLuxury: isLuxury,
           isNight: isNight,
+          isFavorite: favoriteItemKeys.contains(_itemKeyFromTitle(place.name)),
+          onFavorite: () => _toggleExploreFavorite(place),
+          onAddToPackage: () => _showAddToPackageSheet(place),
           onTap: () {
             Navigator.push(
               context,
@@ -1455,6 +1671,9 @@ class _ExploreCard extends StatelessWidget {
   final String? imageUrl;
   final bool isLuxury;
   final bool isNight;
+  final bool isFavorite;
+  final VoidCallback? onFavorite;
+  final VoidCallback? onAddToPackage;
   final VoidCallback? onTap;
 
   const _ExploreCard({
@@ -1468,6 +1687,9 @@ class _ExploreCard extends StatelessWidget {
     this.imageUrl,
     required this.isLuxury,
     required this.isNight,
+    required this.isFavorite,
+    this.onFavorite,
+    this.onAddToPackage,
     this.onTap,
   });
 
@@ -1518,172 +1740,246 @@ class _ExploreCard extends StatelessWidget {
             ? const Color(0xFFEC4899)
             : const Color(0xFF16A34A);
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 122,
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: isLuxury
-                ? const Color(0xFFE8C766).withValues(alpha: 0.35)
-                : isNight
-                    ? const Color(0xFFA855F7).withValues(alpha: 0.35)
-                    : const Color(0xFFE5E7EB),
+    return SizedBox(
+      height: 134,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: isLuxury
+                      ? const Color(0xFFE8C766).withValues(alpha: 0.35)
+                      : isNight
+                          ? const Color(0xFFA855F7).withValues(alpha: 0.35)
+                          : const Color(0xFFE5E7EB),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: isLuxury || isNight ? 0.35 : 0.05,
+                    ),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(22),
+                  onTap: onTap,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 128,
+                        height: double.infinity,
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.horizontal(
+                            left: Radius.circular(22),
+                          ),
+                          child: Container(
+                            color: imageBoxColor,
+                            child: imageUrl == null || imageUrl!.isEmpty
+                                ? _ExploreImagePlaceholder(
+                                    icon: icon,
+                                    accentColor: accentColor,
+                                  )
+                                : Image.network(
+                                    imageUrl!,
+                                    width: 128,
+                                    height: double.infinity,
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment.center,
+                                    errorBuilder:
+                                        (context, error, stackTrace) {
+                                      return _ExploreImagePlaceholder(
+                                        icon: icon,
+                                        accentColor: accentColor,
+                                      );
+                                    },
+                                  ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: chipBackgroundColor,
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: chipBorderColor),
+                                  ),
+                                  child: Text(
+                                    category.isEmpty ? 'place' : category,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: accentColor,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: primaryTextColor,
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on_outlined,
+                                    size: 14,
+                                    color: secondaryTextColor,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Expanded(
+                                    child: Text(
+                                      location,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: secondaryTextColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.access_time,
+                                    size: 13,
+                                    color: secondaryTextColor,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    duration,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: secondaryTextColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    price,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: priceColor,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Icon(
+                                    Icons.star,
+                                    size: 15,
+                                    color: Color(0xFFF59E0B),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    rating,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: secondaryTextColor,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: isLuxury || isNight ? 0.35 : 0.05,
-              ),
-              blurRadius: 12,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 128,
-              height: double.infinity,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.horizontal(
-                  left: Radius.circular(22),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _ExploreCardActionButton(
+                  icon: isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: isFavorite ? const Color(0xFFEF4444) : accentColor,
+                  tooltip: 'Favorite',
+                  onTap: onFavorite,
                 ),
-                child: Container(
-                  color: imageBoxColor,
-                  child: imageUrl == null || imageUrl!.isEmpty
-                      ? _ExploreImagePlaceholder(
-                          icon: icon,
-                          accentColor: accentColor,
-                        )
-                      : Image.network(
-                          imageUrl!,
-                          width: 128,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.center,
-                          errorBuilder: (context, error, stackTrace) {
-                            return _ExploreImagePlaceholder(
-                              icon: icon,
-                              accentColor: accentColor,
-                            );
-                          },
-                        ),
+                const SizedBox(height: 10),
+                _ExploreCardActionButton(
+                  icon: Icons.add_box_outlined,
+                  color: accentColor,
+                  tooltip: 'Add to My Package',
+                  onTap: onAddToPackage,
                 ),
-              ),
+              ],
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: chipBackgroundColor,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: chipBorderColor),
-                      ),
-                      child: Text(
-                        category.isEmpty ? 'place' : category,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: accentColor,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: primaryTextColor,
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 14,
-                          color: secondaryTextColor,
-                        ),
-                        const SizedBox(width: 3),
-                        Expanded(
-                          child: Text(
-                            location,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time,
-                          size: 13,
-                          color: secondaryTextColor,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          duration,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: secondaryTextColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          price,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: priceColor,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const Spacer(),
-                        const Icon(
-                          Icons.star,
-                          size: 15,
-                          color: Color(0xFFF59E0B),
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          rating,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: secondaryTextColor,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExploreCardActionButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  const _ExploreCardActionButton({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white,
+        shape: const CircleBorder(),
+        elevation: 2,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 38,
+            height: 38,
+            child: Icon(icon, color: color, size: 20),
+          ),
         ),
       ),
     );

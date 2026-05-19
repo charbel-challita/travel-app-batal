@@ -754,6 +754,32 @@ class ApiService {
     }
   }
 
+  Future<AiPackageModel> addItemToManualPackage(
+    String packageId,
+    Map<String, dynamic> item,
+  ) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/ai-packages/$packageId/items'),
+      headers: await _authHeaders(includeJson: true),
+      body: jsonEncode({
+        'item_id': item['id'] ?? item['_id'],
+        'item_type': item['type'],
+        'item': item,
+      }),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      final message = _manualPackageErrorMessage(response);
+      throw Exception(message);
+    }
+
+    return AiPackageModel.fromJson(_decodeJsonObject(response.body));
+  }
+
   Future<List<Map<String, dynamic>>> getTrips({String? status}) async {
     final queryParameters = <String, String>{};
 

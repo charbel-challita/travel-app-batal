@@ -31,6 +31,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
   bool isFavorite = false;
   bool isSavingTrip = false;
   bool isUpdatingFavorite = false;
+  bool isAddingToPackage = false;
   bool isLoadingIncludedItems = false;
   String? includedItemsError;
   String? checkedFavoriteKey;
@@ -310,6 +311,166 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
         SnackBar(content: Text(message)),
       );
     }
+  }
+
+  Future<void> _showAddToPackageSheet(PlaceModel place) async {
+    if (!await ApiService.isLoggedIn()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to add items to packages.')),
+      );
+      return;
+    }
+
+    try {
+      final packages = await _apiService.getMyPackages();
+      final compatiblePackages = packages
+          .where(
+            (package) =>
+                package.country.toLowerCase() == place.country.toLowerCase() &&
+                package.city.toLowerCase() == place.city.toLowerCase(),
+          )
+          .toList(growable: false);
+
+      if (!mounted) return;
+
+      if (compatiblePackages.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No matching package for this city. Create a package first.'),
+          ),
+        );
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        builder: (context) {
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Choose package',
+                          style: TextStyle(
+                            color: Color(0xFF111827),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...compatiblePackages.map((package) {
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.inventory_2_outlined,
+                        color: Color(0xFF2563EB),
+                      ),
+                      title: Text(
+                        package.title,
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      subtitle: Text('${package.city}, ${package.country}'),
+                      onTap: () => _addPlaceToPackage(package.id, place),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = ApiService.cleanErrorMessage(error).toLowerCase().contains('log in')
+          ? 'Please log in to add items to packages.'
+          : ApiService.cleanErrorMessage(error);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  Future<void> _addPlaceToPackage(String packageId, PlaceModel place) async {
+    if (isAddingToPackage) return;
+
+    setState(() {
+      isAddingToPackage = true;
+    });
+
+    try {
+      await _apiService.addItemToManualPackage(packageId, _placeToPackagePayload(place));
+      if (!mounted) return;
+
+      setState(() {
+        isAddingToPackage = false;
+      });
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(place.type == 'hotel' ? 'Hotel replaced.' : 'Added to package.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        isAddingToPackage = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Map<String, dynamic> _placeToPackagePayload(PlaceModel place) {
+    return {
+      'id': place.id,
+      '_id': place.id,
+      'name': place.name,
+      'type': place.type,
+      'country': place.country,
+      'city': place.city,
+      'category': place.category,
+      'cost': place.cost,
+      'price': place.cost,
+      'currency': place.currency,
+      'rating': place.rating,
+      'duration_hours': place.durationHours,
+      'interest_tags': place.interestTags,
+      'images': place.images
+          .map(
+            (image) => {
+              'url': image.url,
+              'thumbnail_url': image.thumbnailUrl,
+              'source': image.source,
+              'alt': image.alt,
+              'photographer': image.photographer,
+              'source_url': image.sourceUrl,
+            },
+          )
+          .toList(growable: false),
+    };
   }
 
   @override
@@ -967,6 +1128,36 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                   fontWeight: FontWeight.w900,
                 ),
               ),
+
+              if (hasBackendPlace) ...[
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: isAddingToPackage
+                        ? null
+                        : () => _showAddToPackageSheet(backendPlace!),
+                    icon: const Icon(Icons.add_box_outlined),
+                    label: Text(
+                      isAddingToPackage ? 'Adding...' : 'Add to My Package',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accentColor,
+                      foregroundColor:
+                          isLuxury ? const Color(0xFF111827) : Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 8),
 
