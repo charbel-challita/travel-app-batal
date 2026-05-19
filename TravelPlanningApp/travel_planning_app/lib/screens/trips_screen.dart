@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/ai_package_model.dart';
+import '../screens/create_package_screen.dart';
 import '../services/api_service.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -234,6 +236,328 @@ class _TripsScreenState extends State<TripsScreen> {
         const SnackBar(content: Text('Added to favorites.')),
       );
       await _loadTrips();
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Future<void> _openCreatePackage() async {
+    if (!await ApiService.isLoggedIn()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in first.')),
+      );
+      return;
+    }
+
+    final createdPackage = await Navigator.push<AiPackageModel>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CreatePackageScreen(),
+      ),
+    );
+
+    if (createdPackage == null || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Package created.')),
+    );
+
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  createdPackage.title,
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${createdPackage.city}, ${createdPackage.country}',
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _saveCreatedPackageToTrips(createdPackage),
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text('Add Package to Plan'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Later'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _saveCreatedPackageToTrips(AiPackageModel package) async {
+    try {
+      await _apiService.saveTrip({
+        'item_key': package.id,
+        'title': package.title,
+        'location': '${package.city}, ${package.country}',
+        'image': package.imageUrl ?? package.imageAsset ?? '',
+        'selected_mode': package.mode,
+        'status': 'saved',
+        'tags': [package.tag],
+        'price': '${package.currency} ${package.price.toStringAsFixed(0)}',
+        'rating': package.rating.toStringAsFixed(1),
+        'duration': 'Package plan',
+        'item_type': 'package',
+        'target_type': 'ai_package',
+        'source_collection': 'ai_packages',
+      });
+
+      if (!mounted) return;
+
+      Navigator.pop(context);
+      setState(() {
+        selectedTab = 'Saved';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Package saved to trips.')),
+      );
+      await _loadTrips();
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Future<void> _showMyPackages() async {
+    if (!await ApiService.isLoggedIn()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in first.')),
+      );
+      return;
+    }
+
+    try {
+      final packages = await _apiService.getMyPackages();
+      final savedTrips = await _apiService.getTrips(status: 'saved');
+      final savedTripsByPackageId = <String, Map<String, dynamic>>{
+        for (final trip in savedTrips)
+          if ((trip['item_key'] ?? '').toString().isNotEmpty)
+            (trip['item_key'] ?? '').toString(): trip,
+      };
+      if (!mounted) return;
+
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'My Packages',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (packages.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Text(
+                        'No custom packages yet.',
+                        style: TextStyle(
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: packages.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final package = packages[index];
+                          final savedTrip = savedTripsByPackageId[package.id];
+                          final isSaved = savedTrip != null;
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  package.title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF111827),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${package.city}, ${package.country}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF64748B),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: isSaved
+                                          ? OutlinedButton.icon(
+                                              onPressed: () => _removeMyPackageFromSaved(
+                                                savedTrip,
+                                              ),
+                                              icon: const Icon(
+                                                Icons.bookmark_remove_outlined,
+                                                size: 18,
+                                              ),
+                                              label: const Text('Remove from Saved'),
+                                            )
+                                          : ElevatedButton.icon(
+                                              onPressed: () =>
+                                                  _saveCreatedPackageToTrips(package),
+                                              icon: const Icon(
+                                                Icons.bookmark_add_outlined,
+                                                size: 18,
+                                              ),
+                                              label: const Text('Add Package to Plan'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    const Color(0xFF2563EB),
+                                                foregroundColor: Colors.white,
+                                              ),
+                                            ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      onPressed: () => _deleteMyPackage(
+                                        package.id,
+                                        savedTrip: savedTrip,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Color(0xFFDC2626),
+                                      ),
+                                      tooltip: 'Delete package',
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Future<void> _removeMyPackageFromSaved(Map<String, dynamic> savedTrip) async {
+    final tripId = (savedTrip['_id'] ?? savedTrip['id'] ?? '').toString();
+    if (tripId.isEmpty) return;
+
+    try {
+      await _apiService.deleteTrip(tripId);
+      if (!mounted) return;
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Removed from saved trips.')),
+      );
+      await _loadTrips();
+      await _showMyPackages();
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiService.cleanErrorMessage(error))),
+      );
+    }
+  }
+
+  Future<void> _deleteMyPackage(
+    String packageId, {
+    Map<String, dynamic>? savedTrip,
+  }) async {
+    try {
+      final tripId = (savedTrip?['_id'] ?? savedTrip?['id'] ?? '').toString();
+      if (tripId.isNotEmpty) {
+        await _apiService.deleteTrip(tripId);
+      }
+      await _apiService.deleteMyPackage(packageId);
+      if (!mounted) return;
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Package deleted.')),
+      );
+      await _loadTrips();
+      await _showMyPackages();
     } catch (error) {
       if (!mounted) return;
 
@@ -614,12 +938,57 @@ class _TripsScreenState extends State<TripsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Trips',
-                style: TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.w900,
-                  color: primaryTextColor,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Trips',
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                        color: primaryTextColor,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _openCreatePackage,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Create Package'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accentColor,
+                      foregroundColor: isLuxury
+                          ? const Color(0xFF111827)
+                          : Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _showMyPackages,
+                  icon: Icon(
+                    Icons.inventory_2_outlined,
+                    size: 18,
+                    color: accentColor,
+                  ),
+                  label: const Text('My Packages'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: accentColor,
+                    side: BorderSide(color: accentColor.withOpacity(0.45)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 22),

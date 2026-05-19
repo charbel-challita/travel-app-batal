@@ -119,6 +119,60 @@ class ApiService {
     };
   }
 
+  Future<List<String>> getCountries() async {
+    final response = await _client.get(Uri.parse('$baseUrl/destinations/countries'));
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load countries. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    final countries = decoded['countries'];
+
+    if (countries is! List) {
+      throw Exception('Invalid countries response: "countries" is missing.');
+    }
+
+    return countries
+        .map((country) => country.toString().trim())
+        .where((country) => country.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<List<String>> getCities(String country) async {
+    final trimmedCountry = country.trim();
+    if (trimmedCountry.isEmpty) {
+      return [];
+    }
+
+    final uri = Uri.parse('$baseUrl/destinations/cities').replace(
+      queryParameters: {'country': trimmedCountry},
+    );
+    final response = await _client.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load cities. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    final cities = decoded['cities'];
+
+    if (cities is! List) {
+      throw Exception('Invalid cities response: "cities" is missing.');
+    }
+
+    return cities
+        .map((city) => city.toString().trim())
+        .where((city) => city.isNotEmpty)
+        .toList(growable: false);
+  }
+
   Future<List<PlaceModel>> getTravelItems({
     String? country,
     String? city,
@@ -607,6 +661,97 @@ class ApiService {
     }
 
     return decoded;
+  }
+
+  Future<AiPackageModel> createManualPackage(
+    Map<String, dynamic> packageData,
+  ) async {
+    final http.Response response;
+    try {
+      response = await _client.post(
+        Uri.parse('$baseUrl/ai-packages/manual'),
+        headers: await _authHeaders(includeJson: true),
+        body: jsonEncode(packageData),
+      );
+    } on http.ClientException {
+      throw Exception('Cannot connect to server. Please make sure backend is running.');
+    }
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in to create a package.');
+    }
+
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      final message = _manualPackageErrorMessage(response);
+      throw Exception(message);
+    }
+
+    return AiPackageModel.fromJson(_decodeJsonObject(response.body));
+  }
+
+  static String _manualPackageErrorMessage(http.Response response) {
+    try {
+      final decoded = _decodeJsonObject(response.body);
+      final detail = decoded['detail']?.toString().toLowerCase() ?? '';
+
+      if (detail.contains('select at least one item')) {
+        return 'Please select at least one item.';
+      }
+      if (detail.contains('same city')) {
+        return 'All package items must be from the same city.';
+      }
+    } catch (_) {
+      return 'Could not create package. Please try again.';
+    }
+
+    return 'Could not create package. Please try again.';
+  }
+
+  Future<List<AiPackageModel>> getMyPackages() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/ai-packages/my'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load my packages. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final decoded = _decodeJsonObject(response.body);
+    final items = decoded['items'];
+
+    if (items is! List) {
+      throw Exception('Invalid my packages response: "items" is missing.');
+    }
+
+    return items
+        .map((item) => AiPackageModel.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList(growable: false);
+  }
+
+  Future<void> deleteMyPackage(String packageId) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/ai-packages/$packageId'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Please log in first.');
+    }
+
+    if (response.statusCode != 204) {
+      throw Exception(
+        'Failed to delete package. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
   }
 
   Future<List<Map<String, dynamic>>> getTrips({String? status}) async {

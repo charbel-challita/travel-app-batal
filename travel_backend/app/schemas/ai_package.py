@@ -10,6 +10,23 @@ class IncludedRules(BaseModel):
     nightlife: int = 0
 
 
+class ManualPackageCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    subtitle: str = ""
+    description: str = ""
+    country: str = Field(..., min_length=1)
+    city: str = Field(..., min_length=1)
+    mode: str = "Casual"
+    currency: str = "USD"
+    days: int = Field(default=1, ge=1, le=30)
+    travelers: str = "Solo"
+    interests: list[str] = Field(default_factory=list)
+    hotel_id: str | None = None
+    activity_ids: list[str] = Field(default_factory=list)
+    restaurant_ids: list[str] = Field(default_factory=list)
+    nightlife_ids: list[str] = Field(default_factory=list)
+
+
 class AIPackageResponse(BaseModel):
     id: str = Field(alias="_id")
     title: str
@@ -25,6 +42,8 @@ class AIPackageResponse(BaseModel):
     image_url: Optional[str] = None
     image_asset: Optional[str] = None
     included_rules: IncludedRules
+    source: str = ""
+    visibility: str = ""
     is_active: bool = True
 
     model_config = {

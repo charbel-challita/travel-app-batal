@@ -1,8 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import OAuth2PasswordBearer
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.config import get_settings
+from app.db.mongodb import get_database
+from app.repositories.user_repository import UserRepository
 from app.schemas.ai_package import (
     AIGeneratePackageRequest,
     AIGeneratePackageResponse,
@@ -10,18 +15,56 @@ from app.schemas.ai_package import (
     AIPackageListResponse,
     AIPackageResponse,
     AIPackageSuggestionsResponse,
+    ManualPackageCreateRequest,
 )
+from app.schemas.user import UserResponse
 from app.services.ai_package_service import (
+    create_manual_ai_package,
+    delete_manual_ai_package,
+    get_accessible_ai_package,
     get_ai_package,
     get_ai_package_suggestions,
     get_ai_packages,
+    get_my_ai_packages,
 )
+from app.services.auth_service import AuthService
 from app.services.image_service import ImageService
 from app.services.travel_ai.recommender import generate_package
 from app.services.travel_ai.validator import validate_package
 
 
 router = APIRouter(prefix="/ai-packages", tags=["AI Packages"])
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login",
+    auto_error=False,
+)
+
+
+def get_auth_service(
+    database: AsyncIOMotorDatabase = Depends(get_database),
+) -> AuthService:
+    repository = UserRepository(database)
+    return AuthService(repository)
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    service: AuthService = Depends(get_auth_service),
+) -> UserResponse:
+    return await service.get_current_user(token)
+
+
+async def get_optional_current_user(
+    token: str | None = Depends(optional_oauth2_scheme),
+    service: AuthService = Depends(get_auth_service),
+) -> UserResponse | None:
+    if not token:
+        return None
+    try:
+        return await service.get_current_user(token)
+    except HTTPException:
+        return None
 
 
 async def enrich_ai_item_with_image(
@@ -175,9 +218,43 @@ async def generate_ai_package(request: AIGeneratePackageRequest):
     )
 
 
+@router.post("/manual", response_model=AIPackageResponse, status_code=201)
+async def create_manual_package(
+    request: ManualPackageCreateRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    return await create_manual_ai_package(request, ObjectId(current_user.id))
+
+
+@router.get("/my", response_model=AIPackageListResponse)
+async def list_my_packages(
+    current_user: UserResponse = Depends(get_current_user),
+):
+    return await get_my_ai_packages(ObjectId(current_user.id))
+
+
+@router.delete("/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_manual_package(
+    package_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+) -> None:
+    deleted = await delete_manual_ai_package(package_id, ObjectId(current_user.id))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+
 @router.get("/{package_id}", response_model=AIPackageResponse)
-async def package_details(package_id: str):
-    package = await get_ai_package(package_id)
+async def package_details(
+    package_id: str,
+    current_user: UserResponse | None = Depends(get_optional_current_user),
+):
+    if current_user is None:
+        package = await get_ai_package(package_id)
+    else:
+        package = await get_accessible_ai_package(
+            package_id,
+            user_id=ObjectId(current_user.id),
+        )
 
     if not package:
         raise HTTPException(status_code=404, detail="Package not found")
