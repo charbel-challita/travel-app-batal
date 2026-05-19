@@ -39,6 +39,16 @@ const List<_TypeFilterOption> _typeFilterOptions = [
   ),
 ];
 
+class _SearchLocationMatch {
+  final String? country;
+  final String? city;
+
+  const _SearchLocationMatch({
+    this.country,
+    this.city,
+  });
+}
+
 class ExploreScreen extends StatefulWidget {
   final String selectedMode;
 
@@ -139,14 +149,29 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
 
     try {
-      final places = await _apiService.searchTravelItems(
-        query: trimmedQuery,
-        type: _currentApiType,
-        budgetLevel: _currentApiBudgetLevel,
-        nightlife: _currentApiNightlife,
-        includeImages: true,
-        limit: 20,
-      );
+      final locationMatch = await _resolveSearchLocation(trimmedQuery);
+      final List<PlaceModel> places;
+
+      if (locationMatch.country != null || locationMatch.city != null) {
+        places = await _apiService.getTravelItems(
+          country: locationMatch.country,
+          city: locationMatch.city,
+          type: _currentApiType,
+          budgetLevel: _currentApiBudgetLevel,
+          nightlife: _currentApiNightlife,
+          includeImages: true,
+          limit: 20,
+        );
+      } else {
+        places = await _apiService.searchTravelItems(
+          query: trimmedQuery,
+          type: _currentApiType,
+          budgetLevel: _currentApiBudgetLevel,
+          nightlife: _currentApiNightlife,
+          includeImages: true,
+          limit: 20,
+        );
+      }
 
       if (!mounted || requestId != _placesRequestId) return;
 
@@ -163,6 +188,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
         isLoadingPlaces = false;
       });
     }
+  }
+
+  Future<_SearchLocationMatch> _resolveSearchLocation(String query) async {
+    try {
+      final index = await _apiService.getDestinationSearchIndex();
+      final country = index.matchCountry(query);
+      if (country != null) {
+        return _SearchLocationMatch(country: country);
+      }
+
+      final city = index.matchCity(query);
+      if (city != null) {
+        return _SearchLocationMatch(city: city);
+      }
+    } catch (_) {
+      // If destinations cannot be loaded, keep normal text search behavior.
+    }
+
+    return const _SearchLocationMatch();
   }
 
   Future<void> _loadPlacesForSuggestion(TravelItemSuggestion suggestion) async {

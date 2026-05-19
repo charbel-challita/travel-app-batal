@@ -86,6 +86,43 @@ class AiPackageSuggestion {
   }
 }
 
+class DestinationSearchIndex {
+  final List<String> countries;
+  final List<String> cities;
+
+  DestinationSearchIndex({
+    required this.countries,
+    required this.cities,
+  });
+
+  String? matchCountry(String query) {
+    return _matchExact(query, countries);
+  }
+
+  String? matchCity(String query) {
+    return _matchExact(query, cities);
+  }
+
+  String? _matchExact(String query, List<String> values) {
+    final normalizedQuery = _normalize(query);
+    if (normalizedQuery.isEmpty) {
+      return null;
+    }
+
+    for (final value in values) {
+      if (_normalize(value) == normalizedQuery) {
+        return value;
+      }
+    }
+
+    return null;
+  }
+
+  String _normalize(String value) {
+    return value.trim().toLowerCase();
+  }
+}
+
 class _FriendlyApiException implements Exception {
   final String message;
 
@@ -98,6 +135,7 @@ class ApiService {
       'Cannot connect to server. Please try again.';
   static const String unknownErrorMessage =
       'Something went wrong. Please try again.';
+  static Future<DestinationSearchIndex>? _destinationSearchIndexFuture;
 
   final http.Client _client;
 
@@ -171,6 +209,51 @@ class ApiService {
         .map((city) => city.toString().trim())
         .where((city) => city.isNotEmpty)
         .toList(growable: false);
+  }
+
+  Future<DestinationSearchIndex> getDestinationSearchIndex() {
+    final cachedFuture = _destinationSearchIndexFuture;
+    if (cachedFuture != null) {
+      return cachedFuture;
+    }
+
+    final future = _loadDestinationSearchIndex();
+    _destinationSearchIndexFuture = future;
+    future.catchError((_) {
+      if (identical(_destinationSearchIndexFuture, future)) {
+        _destinationSearchIndexFuture = null;
+      }
+      return DestinationSearchIndex(countries: const [], cities: const []);
+    });
+    return future;
+  }
+
+  Future<DestinationSearchIndex> _loadDestinationSearchIndex() async {
+    final countries = await getCountries();
+    final cityGroups = await Future.wait(
+      countries.map((country) async {
+        try {
+          return await getCities(country);
+        } catch (_) {
+          return <String>[];
+        }
+      }),
+    );
+
+    final citiesByKey = <String, String>{};
+    for (final cityGroup in cityGroups) {
+      for (final city in cityGroup) {
+        final key = city.trim().toLowerCase();
+        if (key.isNotEmpty) {
+          citiesByKey.putIfAbsent(key, () => city);
+        }
+      }
+    }
+
+    return DestinationSearchIndex(
+      countries: countries,
+      cities: citiesByKey.values.toList(growable: false),
+    );
   }
 
   Future<List<PlaceModel>> getTravelItems({

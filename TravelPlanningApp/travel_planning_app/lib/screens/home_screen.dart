@@ -6,6 +6,18 @@ import '../models/ai_package_model.dart';
 import '../services/api_service.dart';
 import 'destination_details_screen.dart';
 
+class _SearchLocationMatch {
+  final String? country;
+  final String? city;
+
+  const _SearchLocationMatch({
+    this.country,
+    this.city,
+  });
+
+  bool get hasMatch => country != null || city != null;
+}
+
 class HomeScreen extends StatefulWidget {
   final String selectedMode;
   final ValueChanged<String> onModeChanged;
@@ -79,9 +91,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      final locationMatch = await _resolveSearchLocation(query);
       final packages = await _apiService.getAiPackages(
         mode: widget.selectedMode,
-        query: query.isEmpty ? null : query,
+        query: locationMatch.hasMatch || query.isEmpty ? null : query,
+        country: locationMatch.country,
+        city: locationMatch.city,
         interests: interests,
         limit: 10,
       );
@@ -101,6 +116,29 @@ class _HomeScreenState extends State<HomeScreen> {
         isLoadingPackages = false;
       });
     }
+  }
+
+  Future<_SearchLocationMatch> _resolveSearchLocation(String query) async {
+    if (query.trim().isEmpty) {
+      return const _SearchLocationMatch();
+    }
+
+    try {
+      final index = await _apiService.getDestinationSearchIndex();
+      final country = index.matchCountry(query);
+      if (country != null) {
+        return _SearchLocationMatch(country: country);
+      }
+
+      final city = index.matchCity(query);
+      if (city != null) {
+        return _SearchLocationMatch(city: city);
+      }
+    } catch (_) {
+      // If destinations cannot be loaded, keep normal package text search.
+    }
+
+    return const _SearchLocationMatch();
   }
 
   void _queueSearch(String value) {
