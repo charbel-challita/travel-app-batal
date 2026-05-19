@@ -559,6 +559,56 @@ class ApiService {
         .toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> generateAiPackage({
+    required String country,
+    required int days,
+    required String budgetLevel,
+    double? customBudget,
+    required String tripStyle,
+    required String travelers,
+    required List<String> interests,
+    required String mode,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/ai-packages/generate'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'country': country,
+        'days': days,
+        'budget_level': budgetLevel,
+        'custom_budget': customBudget,
+        'trip_style': tripStyle,
+        'travelers': travelers,
+        'interests': interests,
+        'mode': mode,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to generate AI package. Status code: '
+        '${response.statusCode}. Body: ${response.body}',
+      );
+    }
+
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException catch (error) {
+      throw Exception('Invalid JSON response from AI package generator: $error');
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'Invalid AI package generator response: expected a JSON object.',
+      );
+    }
+
+    return decoded;
+  }
+
   Future<List<Map<String, dynamic>>> getTrips({String? status}) async {
     final queryParameters = <String, String>{};
 

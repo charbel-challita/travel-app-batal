@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_service.dart';
 import 'trip_details_screen.dart';
 
 class AiPlannerScreen extends StatefulWidget {
@@ -17,6 +18,8 @@ class AiPlannerScreen extends StatefulWidget {
 class _AiPlannerScreenState extends State<AiPlannerScreen> {
   final TextEditingController destinationController = TextEditingController();
   final TextEditingController customBudgetController = TextEditingController();
+  final TextEditingController customInterestController = TextEditingController();
+  bool isGenerating = false;
 
   int tripDays = 1;
   String selectedBudget = 'Mid-range';
@@ -54,6 +57,26 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
     });
   }
 
+  void addCustomInterest() {
+    final customInterest = customInterestController.text.trim();
+
+    if (customInterest.isEmpty) {
+      return;
+    }
+
+    final alreadySelected = selectedInterests.any(
+      (interest) => interest.toLowerCase() == customInterest.toLowerCase(),
+    );
+
+    if (!alreadySelected) {
+      setState(() {
+        selectedInterests.add(customInterest);
+      });
+    }
+
+    customInterestController.clear();
+  }
+
   void selectBudget(String budget) {
     setState(() {
       selectedBudget = budget;
@@ -74,10 +97,139 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
     }
   }
 
+  Future<void> generateAiTrip() async {
+    final destination = destinationController.text.trim();
+
+    if (destination.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a destination country first.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      isGenerating = true;
+    });
+
+    try {
+      final isLuxury = widget.selectedMode == 'Luxury';
+      final isNight = widget.selectedMode == 'Night';
+
+      final customBudgetValue = selectedBudget == 'Custom'
+          ? double.tryParse(customBudgetController.text.trim())
+          : null;
+
+      if (selectedBudget == 'Custom' && customBudgetValue == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid custom budget.'),
+          ),
+        );
+        setState(() {
+          isGenerating = false;
+        });
+        return;
+      }
+
+      final result = await ApiService().generateAiPackage(
+        country: destination,
+        days: tripDays,
+        budgetLevel: isLuxury
+            ? 'luxury'
+            : selectedBudget == 'Custom'
+                ? 'custom'
+                : selectedBudget.toLowerCase(),
+        customBudget: customBudgetValue,
+        tripStyle: isNight
+            ? 'nightlife'
+            : selectedInterests.isNotEmpty
+                ? selectedInterests.first.toLowerCase()
+                : 'culture',
+        travelers: selectedTravelGroup.toLowerCase(),
+        interests:
+            selectedInterests.map((interest) => interest.toLowerCase()).toList(),
+        mode: widget.selectedMode,
+      );
+
+      if (!mounted) return;
+
+      final package = Map<String, dynamic>.from(result['package'] as Map);
+      final validation = result['validation'] is Map
+          ? Map<String, dynamic>.from(result['validation'] as Map)
+          : <String, dynamic>{};
+
+      final hasError = package.containsKey('error');
+      final isValid = validation['valid'] == true;
+
+      if (hasError || !isValid) {
+        final errors = validation['errors'];
+
+        final message = errors is List && errors.isNotEmpty
+            ? errors.first.toString()
+            : package['reason']?.toString() ??
+                'No AI package found for this destination.';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+          ),
+        );
+
+        return;
+      }
+
+      final selectedCity = (package['selected_city'] ?? destination).toString();
+      final estimatedCost = package['estimated_total_cost'];
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TripDetailsScreen(
+            title: isLuxury
+                ? '$selectedCity Luxury Trip Plan'
+                : isNight
+                    ? '$selectedCity Night Trip Plan'
+                    : '$selectedCity Trip Plan',
+            location: selectedCity,
+            status: 'AI Generated',
+            duration: '$tripDays ${tripDays == 1 ? 'day' : 'days'}',
+            budget: estimatedCost == null
+                ? selectedBudget
+                : '\$${(estimatedCost as num).toStringAsFixed(0)}',
+            style: isLuxury
+                ? 'Luxury'
+                : isNight
+                    ? 'Nightlife'
+                    : 'AI matched',
+            people: selectedTravelGroup,
+            aiPackage: package,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ApiService.cleanErrorMessage(error)),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isGenerating = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     destinationController.dispose();
     customBudgetController.dispose();
+    customInterestController.dispose();
     super.dispose();
   }
 
@@ -86,6 +238,15 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
     final isCustomBudget = selectedBudget == 'Custom';
     final isLuxury = widget.selectedMode == 'Luxury';
     final isNight = widget.selectedMode == 'Night';
+    final visibleInterests = [
+      ...interests,
+      ...selectedInterests.where(
+        (interest) => !interests.any(
+          (defaultInterest) =>
+              defaultInterest.toLowerCase() == interest.toLowerCase(),
+        ),
+      ),
+    ];
 
     final backgroundColor = isLuxury
         ? const Color(0xFF030303)
@@ -348,7 +509,7 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                     Wrap(
                       spacing: 10,
                       runSpacing: 10,
-                      children: interests.map((interest) {
+                      children: visibleInterests.map((interest) {
                         final isSelected = selectedInterests.contains(interest);
 
                         return _ChipButton(
@@ -359,6 +520,49 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                           onTap: () => toggleInterest(interest),
                         );
                       }).toList(),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: inputColor,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: customInterestController,
+                              style: TextStyle(
+                                color: primaryTextColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: 'Add your own interest',
+                                hintStyle: TextStyle(
+                                  color: secondaryTextColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                border: InputBorder.none,
+                              ),
+                              onSubmitted: (_) => addCustomInterest(),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: addCustomInterest,
+                            icon: Icon(
+                              Icons.add_circle,
+                              color: accentColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
 
                     const SizedBox(height: 22),
@@ -392,141 +596,29 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                 ),
               ),
 
-              const SizedBox(height: 20),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: isLuxury || isNight ? const Color(0xFF0B1020) : Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: borderColor),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isLuxury ? 'Luxury AI Assistant' : 'AI Assistant',
-                      style: TextStyle(
-                        color: accentColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isLuxury
-                          ? 'I will create a premium trip plan using luxury hotels, fine dining, private tours, and exclusive experiences.'
-                          : 'I will create a trip plan based on your destination, budget, days, interests, and who you are traveling with.',
-                      style: TextStyle(
-                        color: isLuxury || isNight
-                            ? const Color(0xFFB8B8D1)
-                            : const Color(0xFF374151),
-                        fontSize: 13,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: isLuxury || isNight ? const Color(0xFF0B1020) : Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: borderColor),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Smart suggestions',
-                      style: TextStyle(
-                        color: primaryTextColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _SuggestionChip(
-                          text: isLuxury ? 'Private transfers' : 'Low walking',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                        _SuggestionChip(
-                          text: isLuxury ? 'Fine dining' : 'Sunset spots',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                        _SuggestionChip(
-                          text: isLuxury ? 'Luxury stays' : 'Photo-friendly',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                        _SuggestionChip(
-                          text: isLuxury ? 'VIP experiences' : 'Hidden gems',
-                          isLuxury: isLuxury,
-                          isNight: isNight,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
               const SizedBox(height: 28),
 
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    final destination =
-                        destinationController.text.trim().isEmpty
-                            ? 'AI Generated Trip'
-                            : destinationController.text.trim();
-
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TripDetailsScreen(
-                          title: isLuxury
-                              ? '$destination Luxury Trip Plan'
-                              : '$destination Trip Plan',
-                          location: destination,
-                          status: 'AI Generated',
-                          duration:
-                              '$tripDays ${tripDays == 1 ? 'day' : 'days'}',
-                          budget: isLuxury
-                              ? 'Luxury'
-                              : selectedBudget == 'Custom'
-                                  ? '\$${customBudgetController.text.trim().isEmpty ? 'Custom' : customBudgetController.text.trim()}'
-                                  : selectedBudget,
-                          style: isLuxury ? 'Luxury' : 'AI matched',
-                          people: selectedTravelGroup,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.auto_awesome),
+                  onPressed: isGenerating ? null : generateAiTrip,
+                  icon: isGenerating
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.auto_awesome),
                   label: Text(
-                    isLuxury ? 'Generate Luxury AI Plan' : 'Generate AI Suggestion',
+                    isGenerating
+                        ? 'Generating...'
+                        : isLuxury
+                            ? 'Generate Luxury AI Plan'
+                            : 'Generate AI Suggestion',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w900,
@@ -643,48 +735,6 @@ class _ChipButton extends StatelessWidget {
             fontSize: 13,
             fontWeight: FontWeight.w800,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SuggestionChip extends StatelessWidget {
-  final String text;
-  final bool isLuxury;
-  final bool isNight;
-
-  const _SuggestionChip({
-    required this.text,
-    required this.isLuxury,
-    required this.isNight,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: isLuxury || isNight ? const Color(0xFF111827) : const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isLuxury
-              ? const Color(0xFFE8C766).withOpacity(0.35)
-              : isNight
-                  ? const Color(0xFFA855F7).withOpacity(0.35)
-                  : Colors.transparent,
-        ),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: isLuxury
-              ? const Color(0xFFE8C766)
-              : isNight
-                  ? const Color(0xFFE879F9)
-                  : const Color(0xFF6B7280),
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );

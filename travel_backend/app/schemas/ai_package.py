@@ -49,3 +49,24 @@ class AIPackageSuggestion(BaseModel):
 class AIPackageSuggestionsResponse(BaseModel):
     suggestions: list[AIPackageSuggestion]
     count: int
+
+
+class AIGeneratePackageRequest(BaseModel):
+    country: str
+    days: int = Field(default=3, ge=1, le=30)
+    budget_level: str = "mid-range"
+    custom_budget: float | None = Field(default=None, ge=1)
+    trip_style: str = "culture"
+    travelers: str = "friends"
+    interests: list[str] = []
+    mode: str = "Casual"
+
+
+class AIGeneratePackageValidation(BaseModel):
+    valid: bool
+    errors: list[str] = []
+
+
+class AIGeneratePackageResponse(BaseModel):
+    package: dict
+    validation: AIGeneratePackageValidation
